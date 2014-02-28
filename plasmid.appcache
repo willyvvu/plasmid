@@ -1,16 +1,18 @@
 CACHE MANIFEST
-# 2-24-2014 v9
+# 2-25-2014 v13
 # Remember to change this comment when resources change,
 # to inform the browser that things have changed
 CACHE:
 index.html
 js/combined.js
-js/index.js#Comment this out
 images/Handle.png
 images/Logo.png
 images/Particle.png
+images/Complete.png
 images/Rays.png
 css/index.css
+js/index.js
+images/Counter.png
+images/History.png
 
 #NETWORK:
-#js/index.js
