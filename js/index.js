@@ -90,7 +90,8 @@ var Plasmid = function(canvascontainer) {
 	this.interaction = {
 		maxHeight: 0, //The (approximate) maximum visible height of the interaction plane when viewed through the camera
 		interactionDistance: 50, //The z-distance from the origin of interactable objects
-		interactableDistance: 150, //Minimum distance for the cursor to buttons and other interactable objects
+		interactableDistance: 100, //Minimum distance for the cursor to buttons and other interactable objects
+		interactableAspect: 2, //The width/height aspect ratio for buttons
 		levelViewDistance: 1000, //The default z-distance from the origin of the camera
 		menuViewDistance: 1100, //The main-menu z-distance from the origin of the camera
 		adjustedProjectionDistance: 60, //The compensation factor for the approximate inverse projection
@@ -161,12 +162,16 @@ var Plasmid = function(canvascontainer) {
 		logo: {
 			width: 400,
 			position: new THREE.Vector3(0, 0, 250), //Where to place the logo
-			map: "logo"
+			map: "logo",
+			opacity: function() {
+				return this.state == this.MAIN ? 1 : 0;
+			}
 		},
 		credits: {
 			width: 400,
 			position: new THREE.Vector3(0, 0, 250), //Where to place the credits
-			map: "credits"
+			map: "credits",
+			opacity: null
 		},
 		completionType: {
 			width: 280,
@@ -174,7 +179,8 @@ var Plasmid = function(canvascontainer) {
 			position: new THREE.Vector3(0, 100, 150), //Where to place the text
 			repeat: new THREE.Vector2(1, 1 / 3),
 			offset: new THREE.Vector2(0, 2 / 3),
-			map: "complete"
+			map: "complete",
+			opacity: null
 		},
 		completionText: {
 			width: 400,
@@ -182,21 +188,28 @@ var Plasmid = function(canvascontainer) {
 			position: new THREE.Vector3(0, 0, 251), //Where to place the text
 			repeat: new THREE.Vector2(1, 1 / 3),
 			offset: new THREE.Vector2(0, 1 / 3),
-			map: "complete"
+			map: "complete",
+			opacity: null
 		},
 		counter: {
 			//The number representing the mutations remaining
 			width: 120,
 			position: new THREE.Vector3(0, 0, 252), //Where to place the text
 			repeat: new THREE.Vector2(1 / 5, 1 / 3),
-			map: "counter"
+			map: "counter",
+			opacity: function() {
+				return (this.state & this.INLEVEL) != 0 ? 1 : 0;
+			}
 		},
 		counterlabel: {
 			//The text that says "mutations left"
 			width: 400,
 			position: new THREE.Vector3(0, -170, 151), //Where to place the text
 			repeat: new THREE.Vector2(1, 1 / 3),
-			map: "counter"
+			map: "counter",
+			opacity: function() {
+				return (this.state & this.INLEVEL) != 0 ? 1 : 0;
+			}
 		},
 		undo: {
 			width: 200,
@@ -204,6 +217,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 3),
 			offset: new THREE.Vector2(0, 2 / 3),
 			map: "history",
+			opacity: function() {
+				return this.level_can_undo() ? 1 : 0;
+			},
 			handler: function() {
 				if ((this.state & this.HISTORY) != 0) {
 					this.level_undo();
@@ -217,6 +233,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 3),
 			offset: new THREE.Vector2(0, 1 / 3),
 			map: "history",
+			opacity: function() {
+				return this.level_can_redo() ? 1 : 0;
+			},
 			handler: function() {
 				if ((this.state & this.HISTORY) != 0) {
 					this.level_redo();
@@ -230,6 +249,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 3),
 			offset: new THREE.Vector2(0, 0),
 			map: "history",
+			opacity: function() {
+				return this.level_can_reset() ? 1 : 0;
+			},
 			handler: function() {
 				if ((this.state & this.HISTORY) != 0) {
 					this.level_reset();
@@ -243,6 +265,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 1 / 4),
 			map: "menucontrols",
+			opacity: function() {
+				return (this.state & this.INLEVEL) != 0;
+			},
 			handler: function() {
 				if ((this.state & this.INLEVEL) != 0) {
 					this.state = this.MAIN;
@@ -258,11 +283,13 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 3 / 4),
 			map: "mainmenu",
+			opacity: function() {
+				return this.state == this.MAIN ? 1 : 0;
+			},
 			handler: function() {
 				if (this.state == this.MAIN) {
-					this.level_load();
 					this.state = this.LEVEL;
-					this.update_ui();
+					this.level_load();
 					return false;
 				}
 			}
@@ -274,6 +301,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 1 / 4),
 			map: "mainmenu",
+			opacity: function() {
+				return this.state == this.MAIN ? 0.1 : 0;
+			},
 			handler: function() {}
 		},
 		detonator: {
@@ -283,6 +313,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 2 / 4),
 			map: "mainmenu",
+			opacity: function() {
+				return this.state == this.MAIN ? 0.1 : 0;
+			},
 			handler: function() {}
 		},
 		practice: {
@@ -292,6 +325,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 0),
 			map: "mainmenu",
+			opacity: function() {
+				return this.state == this.MAIN ? 0.1 : 0;
+			},
 			handler: function() {}
 		},
 		nextlevel: {
@@ -301,16 +337,32 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 3 / 4),
 			map: "menucontrols",
-			handler: function() {}
+			opacity: function() {
+				return this.state == this.MAIN ? this.level_can_next() ? 1 : 0.1 : 0;
+			},
+			handler: function() {
+				if (this.state == this.MAIN && this.level_can_next()) {
+					this.level_next();
+					return false;
+				}
+			}
 		},
-		prevlevel: {
+		previouslevel: {
 			width: 400,
 			position: new THREE.Vector3(-550, 0, this.interaction.interactionDistance),
 			rotation: new THREE.Euler(0, 0, 0),
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 2 / 4),
 			map: "menucontrols",
-			handler: function() {}
+			opacity: function() {
+				return this.state == this.MAIN ? this.level_can_previous() ? 1 : 0.1 : 0;
+			},
+			handler: function() {
+				if (this.state == this.MAIN && this.level_can_previous()) {
+					this.level_previous();
+					return false;
+				}
+			}
 		},
 		help: {
 			width: 400,
@@ -319,6 +371,9 @@ var Plasmid = function(canvascontainer) {
 			repeat: new THREE.Vector2(1, 1 / 4),
 			offset: new THREE.Vector2(0, 0),
 			map: "menucontrols",
+			opacity: function() {
+				return this.state == this.MAIN ? 1 : 0;
+			},
 			handler: function() {}
 		}
 	}
@@ -1070,6 +1125,7 @@ var Plasmid = function(canvascontainer) {
 			zoomspeed: 1.05, //How fast to zoom upon level completion
 			visible: false,
 			materialSettings: {
+				opacity: 0,
 				color: 0xFFFFFF,
 				//vertexColors: THREE.VertexColors,
 				side: THREE.DoubleSide,
@@ -1255,87 +1311,48 @@ var Plasmid = function(canvascontainer) {
 }
 Plasmid.prototype = {
 	//Shows/hides items as appropriate.
-	update_ui: function() {
+	update_ui: function(override_lerpspeed) {
+		var lerpspeed = override_lerpspeed || this.lerpspeed;
 		if (this.state == this.MAIN) {
-			//Show logo
-			this.lerp_add(this.text.logo.material, "opacity", 1, this.lerpspeed);
-			this.lerp_add(this.level.handle.material, "opacity", 0, this.lerpspeed);
-			this.text.completionText.opacity = 0;
 			this.level.ring.visible = true;
-			this.text.counter.opacity = 0;
-			this.text.pause.opacity = 0;
-			this.text.undo.opacity = 0;
-			this.text.reset.opacity = 0;
-			this.text.redo.opacity = 0;
-			this.text.campaign.opacity = 1;
-			this.text.reactor.opacity = 0.1;
-			this.text.detonator.opacity = 0.1;
-			this.text.practice.opacity = 0.1;
-			this.text.nextlevel.opacity = 1;
-			this.text.prevlevel.opacity = 1;
-			this.text.help.opacity = 1;
 			this.view.position.set(0, 0, this.interaction.menuViewDistance);
-		} else {
-			this.text.campaign.opacity = 0;
-			this.text.reactor.opacity = 0;
-			this.text.detonator.opacity = 0;
-			this.text.practice.opacity = 0;
-			this.text.nextlevel.opacity = 0;
-			this.text.prevlevel.opacity = 0;
-			this.text.help.opacity = 0;
+			this.view.lookAt.set(0, 0, 0);
 		}
 		if ((this.state & this.INLEVEL) != 0) {
 			//In a level
-			//Show handles
-			this.lerp_add(this.level.handle.material, "opacity", 1, this.lerpspeed);
-			//Hide logo
-			this.lerp_add(this.text.logo.material, "opacity", 0, this.lerpspeed);
 			this.view.position.set(0, 0, this.interaction.levelViewDistance);
 			this.view.lookAt.set(0, 0, 0);
-			this.text.pause.opacity = 1;
-		}
-		if (this.state == this.LEVEL) {
-			//Show counters
-			this.text.counter.opacity = 1;
-		}
-		if ((this.state & this.HISTORY) != 0) {
-			this.text.undo.opacity = this.current.generation > 0 ? 1 : 0;
-			this.text.reset.opacity = this.current.generation > 0 ? 1 : 0;
-			this.text.redo.opacity = this.current.generation < this.current.history.length - 1 ? 1 : 0;
 		}
 		if (this.state == this.CREDITS) {
 			this.credits._scroll = 1;
-			//Hide all segments
-			for (var i = 0; i < this.current.segments.length; i++) {
-				var segment = this.current.segments[i];
-				this.lerp_add(segment.object.material.uniforms.opacity, "value", 0, 1);
-			}
+			//Hide all segments immediately
+			// for (var i = 0; i < this.current.segments.length; i++) {
+			// 	var segment = this.current.segments[i];
+			// 	this.lerp_add(segment.object.material.uniforms.opacity, "value", 0, 1);
+			// }
 			//Hide everything
-			this.text.completionText.opacity = 0;
 			this.level.ring.visible = false;
-			this.text.counter.opacity = 0;
 		}
-		this.lerp_add(this.text.counter.material, "opacity", this.text.counter.opacity, this.lerpspeed);
-		this.lerp_add(this.text.counterlabel.material, "opacity", this.text.counter.opacity, this.lerpspeed);
-		this.lerp_add(this.text.completionText.material, "opacity", this.text.completionText.opacity, this.lerpspeed);
-		this.lerp_add(this.text.completionType.material, "opacity", this.text.completionText.opacity, this.lerpspeed);
-		this.lerp_add(this.text.undo.material, "opacity", this.text.undo.opacity, this.lerpspeed);
-		this.lerp_add(this.text.redo.material, "opacity", this.text.redo.opacity, this.lerpspeed);
-		this.lerp_add(this.text.reset.material, "opacity", this.text.reset.opacity, this.lerpspeed);
-		this.lerp_add(this.text.pause.material, "opacity", this.text.pause.opacity, this.lerpspeed);
-		this.lerp_add(this.text.campaign.material, "opacity", this.text.campaign.opacity, this.lerpspeed);
-		this.lerp_add(this.text.reactor.material, "opacity", this.text.reactor.opacity, this.lerpspeed);
-		this.lerp_add(this.text.detonator.material, "opacity", this.text.detonator.opacity, this.lerpspeed);
-		this.lerp_add(this.text.practice.material, "opacity", this.text.practice.opacity, this.lerpspeed);
-		this.lerp_add(this.text.nextlevel.material, "opacity", this.text.nextlevel.opacity, this.lerpspeed);
-		this.lerp_add(this.text.prevlevel.material, "opacity", this.text.prevlevel.opacity, this.lerpspeed);
-		this.lerp_add(this.text.help.material, "opacity", this.text.help.opacity, this.lerpspeed);
-		if (this.level.ring.visible) {
-			//Fade all segments in
-			for (var i = 0; i < this.current.segments.length; i++) {
-				var segment = this.current.segments[i];
-				this.lerp_add(segment.object.material.uniforms.opacity, "value", 1, this.lerpspeed);
+		//Handle the text!
+		for (var t in this.text) {
+			var text = this.text[t];
+			if (text.override_opacity !== null) {
+				this.lerp_add(text.material, "opacity", text.override_opacity, lerpspeed);
+				text.override_opacity = null;
+			} else if ("opacity" in text) {
+				if (typeof text.opacity == "function") {
+					this.lerp_add(text.material, "opacity", text.opacity.call(this), lerpspeed);
+				} else if (typeof text.opacity == "number") {
+					this.lerp_add(text.material, "opacity", text.opacity, lerpspeed);
+				}
 			}
+		}
+		//Handle the handles!
+		this.lerp_add(this.level.handle.material, "opacity", (this.state & this.INLEVEL) == 0 ? 0 : 1, lerpspeed);
+		//Handle the segments!
+		for (var i = 0; i < this.current.segments.length; i++) {
+			var segment = this.current.segments[i];
+			this.lerp_add(segment.object.material.uniforms.opacity, "value", this.level.ring.visible ? 1 : 0, lerpspeed);
 		}
 	},
 	//Returns whether or not the user can reset
@@ -1354,7 +1371,6 @@ Plasmid.prototype = {
 	level_reset: function() {
 		if (this.level_can_reset()) {
 			this.current.generation = 0;
-			this.update_ui();
 			this.level_update();
 		}
 	},
@@ -1362,7 +1378,6 @@ Plasmid.prototype = {
 	level_undo: function() {
 		if (this.level_can_undo()) {
 			this.current.generation--;
-			this.update_ui();
 			this.level_update();
 		}
 	},
@@ -1370,7 +1385,6 @@ Plasmid.prototype = {
 	level_redo: function() {
 		if (this.level_can_redo()) {
 			this.current.generation++;
-			this.update_ui();
 			this.level_update();
 		}
 	},
@@ -1382,7 +1396,7 @@ Plasmid.prototype = {
 			return true
 		}
 		return false;
-	} //Returns whether or not the user can visit the next level.
+	}, //Returns whether or not the user can visit the next level.
 	level_can_next: function() {
 		if ((this.savedata.level + 1) in this.savedata.levelpacks[this.savedata.levelpack]) {
 			return true;
@@ -1390,7 +1404,7 @@ Plasmid.prototype = {
 			return true
 		}
 		return false;
-	}
+	},
 	//Decrements and updates the level
 	level_previous: function() {
 		if ((this.savedata.level - 1) in this.levelpacks[this.savedata.levelpack].levels) {
@@ -1400,14 +1414,9 @@ Plasmid.prototype = {
 		} else {
 			if ((this.savedata.levelpack - 1) in this.levelpacks) {
 				this.savedata.levelpack--;
-				this.savedata.level = 0;
+				this.savedata.level = this.levelpacks[this.savedata.levelpack].levels.length - 1;
 				this.level_load();
 				return true;
-			} else {
-				if (this.completion._complete > 0) {
-					console.log("GAME COMPLETE!");
-					this.state = this.CREDITS;
-				}
 			}
 		}
 		return false;
@@ -1478,10 +1487,6 @@ Plasmid.prototype = {
 				this.current.generation++;
 				if ((this.state & this.HISTORY) != 0) {
 					this.current.history.splice(this.current.generation);
-					this.text.undo.opacity = 1;
-					this.text.redo.opacity = 0;
-					this.text.reset.opacity = 1;
-					this.update_ui();
 				}
 				this.current.history[this.current.generation] = this.current.locations;
 				this.level_update();
@@ -1814,13 +1819,12 @@ Plasmid.prototype = {
 			if (this.level_iscomplete()) {
 				//Plasmid complete
 				this.text.completionType.material.map.offset.y = 2 / 3;
-				this.text.completionText.opacity = 1;
-				this.text.counter.opacity = 0;
+				this.text.completionText.override_opacity = 1;
+				this.text.counter.override_opacity = 0;
 			} else {
-				this.text.completionText.opacity = 0;
-				this.text.counter.opacity = 1;
+				this.text.completionText.override_opacity = 0;
+				this.text.counter.override_opacity = 1;
 			}
-			this.update_ui();
 		} else if ((this.state & this.INLEVEL) != 0) {
 			if (this.level_iscomplete()) {
 				this.lerp_add(this.shaders.desaturate.uniforms.amount, "value", 0, this.lerpspeed);
@@ -1833,6 +1837,7 @@ Plasmid.prototype = {
 				}
 			}
 		}
+		this.update_ui();
 	},
 	//Mouse callbacks
 	mouse_down: function(x, y) {
@@ -2020,7 +2025,7 @@ Plasmid.prototype = {
 		//Setup text
 		for (var t in this.text) {
 			var text = this.text[t];
-			text.opacity = 0;
+			text.override_opacity = null;
 			text.material = new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings));
 			text.material.map = this.images[text.map].clone();
 			text.material.map.needsUpdate = true;
@@ -2054,6 +2059,10 @@ Plasmid.prototype = {
 	},
 	//Adds a value to be lerped over the loop timer
 	lerp_add: function(object, field, target, speed, callback, step) {
+		//Skip if unnecessary
+		if (object[field] == target) {
+			return;
+		}
 		for (var i = 0; i < this.lerpqueue.length; i++) {
 			if (this.lerpqueue[i].object === object && this.lerpqueue[i].field === field) {
 				var current = this.lerpqueue[i];
@@ -2156,7 +2165,7 @@ Plasmid.prototype = {
 				var text = this.text[t];
 				if (
 					this.utils_length(
-						this.interaction.cursor.projected.x - text.object.position.x,
+						(this.interaction.cursor.projected.x - text.object.position.x) / this.interaction.interactableAspect,
 						this.interaction.cursor.projected.y - text.object.position.y) < this.interaction.interactableDistance) {
 					if ("handler" in text) {
 						if (text.handler.call(this) === false) {
@@ -2166,7 +2175,6 @@ Plasmid.prototype = {
 					}
 				}
 			}
-			console.log(pressed);
 			if (!pressed) {
 				if (this.state == this.MAIN) {
 
@@ -2174,7 +2182,6 @@ Plasmid.prototype = {
 					//Check for undo/redo/reset
 
 					//Find the nearest handle
-					console.log("Handle!")
 					this.level_nearest();
 					//Select it if it is close enough
 					if (this.interaction.selection.nearestDistance < this.interaction.selection.distance) {
@@ -2269,7 +2276,6 @@ Plasmid.prototype = {
 				if (this.state == this.CREDITS) {
 					this.state = this.MAIN;
 					this.level_update();
-					this.update_ui();
 				}
 			}
 		}
@@ -2287,14 +2293,7 @@ Plasmid.prototype = {
 
 				//Fade the handle and counter opacity
 				if (this.level.completion.complete > 0 && this.level.completion._complete < 2) {
-					this.lerp_add(this.level.handle.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.text.counter.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.text.counterlabel.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.text.undo.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.text.pause.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.text.redo.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.text.reset.material, "opacity", 0, this.level.completion.handleopacityspeed);
-
+					this.update_ui(this.level.completion.handleopacityspeed);
 					this.level.completion._complete = 2;
 				}
 				//Complete plasmid
@@ -2316,8 +2315,9 @@ Plasmid.prototype = {
 							//Genome complete
 							this.text.completionType.material.map.offset.y = 0;
 						}
-						this.lerp_add(this.text.completionText.material, "opacity", 1, this.lerpspeed);
-						this.lerp_add(this.text.completionType.material, "opacity", 1, this.lerpspeed);
+						this.text.completionText.override_opacity = 1;
+						this.text.completionType.override_opacity = 1;
+						this.update_ui();
 					}
 					var mapped = this.utils_map(this.level.completion.complete, 0.3, 0.7, 0, 0.5);
 					this.level.object.position.z = mapped * mapped * this.interaction.levelViewDistance;
@@ -2448,13 +2448,11 @@ Plasmid.prototype = {
 		this.setup_postload();
 		this.state = this.MAIN;
 		this.level_load();
-		this.update_ui();
 		//Snap! Fast!
 		this.view.position.copy(this.view._position);
 		this.view.lookAt.copy(this.view._lookAt);
 		this.ambient.background.colorBottom.copy(this.ambient.background._colorBottom);
 		this.ambient.background.colorTop.copy(this.ambient.background._colorTop);
-		this.text.logo.material.opacity = this.text.logo.material._opacity;
 		//Show everything
 		this.ambient.rays.object.visible = true;
 		this.ambient.background.object.visible = true;
