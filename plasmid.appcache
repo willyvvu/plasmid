@@ -16,7 +16,7 @@ images/History.png
 images/Credits.png
 images/MenuControls.png
 images/MainMenu.png
+js/AnaglyphRenderPass.js
 
 NETWORK:
-js/AnaglyphRenderPass.js
 js/index.js

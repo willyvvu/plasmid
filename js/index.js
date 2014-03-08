@@ -36,15 +36,61 @@ var Plasmid = function(canvascontainer) {
 	this.state = this.LOADING;
 	//Contains information for the loading screen
 	this.loading = {
-		loadedColor: new THREE.Color(0xFFFFFF),
-		waitingColor: new THREE.Color(0x555555)
+		progress: 0,
+		ring: {
+			size: 700,
+			lerpspeed: 0.1,
+			position: new THREE.Vector3(0, 0, 5),
+			material: new THREE.ShaderMaterial({
+				transparent: true,
+				blending: THREE.AdditiveBlending,
+				uniforms: {
+					"progress": {
+						"type": "f",
+						"value": 0
+					},
+					"time": {
+						"type": "f",
+						"value": 0
+					}
+				},
+				vertexShader: [
+					"varying vec2 vUv;",
+					"void main() {",
+					"vUv = uv;",
+					"gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );",
+					"}"
+				].join("\n"),
+				fragmentShader: [
+					"uniform float progress;",
+					"uniform float time;",
+					"varying vec2 vUv;",
+					//Taken from http://lolengine.net/blog/2013/07/27/rgb-to-hsv-in-glsl.
+					"vec3 hsv2rgb(vec3 c) {",
+					"vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);",
+					"vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);",
+					"return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);",
+					"}",
+					"void main() {",
+					"vec2 center=vUv-vec2(0.5,0.5);",
+					"float radius=length(center);",
+					"float angle=1.0-(atan(center.y,center.x)+3.1415926)/6.2831853;",
+					"if(radius>0.5||radius<0.42||mod(angle*200.0,1.0)<0.5){",
+					"discard;",
+					"};",
+					"float value=mod(angle+0.75,1.0)<progress?1.0:0.3;",
+					"float hue=mod(angle*2.0-time*0.2,1.0);",
+					"gl_FragColor=vec4(hsv2rgb(vec3(hue,1.0,value)),1.0);",
+					"}"
+				].join("\n")
+			})
+		}
 	}
-
 	//Defines constants for interaction and the camera
 	this.interaction = {
 		maxHeight: 0, //The (approximate) maximum visible height of the interaction plane when viewed through the camera
 		interactionDistance: 50, //The z-distance from the origin of interactable objects
-		interactableDistance: 100, //Minimum distance for the cursor to buttons and other interactable objects
+		interactableDistance: 150, //Minimum distance for the cursor to buttons and other interactable objects
 		levelViewDistance: 1000, //The default z-distance from the origin of the camera
 		menuViewDistance: 1100, //The main-menu z-distance from the origin of the camera
 		adjustedProjectionDistance: 60, //The compensation factor for the approximate inverse projection
@@ -204,6 +250,76 @@ var Plasmid = function(canvascontainer) {
 					return false;
 				}
 			}
+		},
+		campaign: {
+			width: 400,
+			position: new THREE.Vector3(550, 0, this.interaction.interactionDistance),
+			rotation: new THREE.Euler(0, 0, 0),
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 3 / 4),
+			map: "mainmenu",
+			handler: function() {
+				if (this.state == this.MAIN) {
+					this.level_load();
+					this.state = this.LEVEL;
+					this.update_ui();
+					return false;
+				}
+			}
+		},
+		reactor: {
+			width: 400,
+			position: new THREE.Vector3(550 * Math.cos(-0.3), 550 * Math.sin(-0.3), this.interaction.interactionDistance),
+			rotation: new THREE.Euler(0, 0, -0.3),
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 1 / 4),
+			map: "mainmenu",
+			handler: function() {}
+		},
+		detonator: {
+			width: 400,
+			position: new THREE.Vector3(550 * Math.cos(-0.6), 550 * Math.sin(-0.6), this.interaction.interactionDistance),
+			rotation: new THREE.Euler(0, 0, -0.6),
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 2 / 4),
+			map: "mainmenu",
+			handler: function() {}
+		},
+		practice: {
+			width: 400,
+			position: new THREE.Vector3(550 * Math.cos(0.3), 550 * Math.sin(0.3), this.interaction.interactionDistance),
+			rotation: new THREE.Euler(0, 0, 0.3),
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 0),
+			map: "mainmenu",
+			handler: function() {}
+		},
+		nextlevel: {
+			width: 400,
+			position: new THREE.Vector3(-550 * Math.cos(0.3), 550 * Math.sin(0.3), this.interaction.interactionDistance),
+			rotation: new THREE.Euler(0, 0, -0.3),
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 3 / 4),
+			map: "menucontrols",
+			handler: function() {}
+		},
+		prevlevel: {
+			width: 400,
+			position: new THREE.Vector3(-550, 0, this.interaction.interactionDistance),
+			rotation: new THREE.Euler(0, 0, 0),
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 2 / 4),
+			map: "menucontrols",
+			handler: function() {}
+		},
+		help: {
+			width: 400,
+			position: new THREE.Vector3(-550 * Math.cos(-0.3), 550 * Math.sin(-0.3), this.interaction.interactionDistance),
+			rotation: new THREE.Euler(0, 0, 0.2),
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 0),
+			map: "menucontrols",
+			handler: function() {}
 		}
 	}
 	//Contains objects that make up the main menu, along with the menu state
@@ -237,7 +353,6 @@ var Plasmid = function(canvascontainer) {
 			material: new THREE.ShaderMaterial({
 				transparent: true,
 				blending: THREE.AdditiveBlending,
-				alphaTest: 0.5,
 				//depthWrite: false,
 				//depthTest: false,
 				uniforms: {
@@ -1152,7 +1267,22 @@ Plasmid.prototype = {
 			this.text.undo.opacity = 0;
 			this.text.reset.opacity = 0;
 			this.text.redo.opacity = 0;
+			this.text.campaign.opacity = 1;
+			this.text.reactor.opacity = 0.1;
+			this.text.detonator.opacity = 0.1;
+			this.text.practice.opacity = 0.1;
+			this.text.nextlevel.opacity = 1;
+			this.text.prevlevel.opacity = 1;
+			this.text.help.opacity = 1;
 			this.view.position.set(0, 0, this.interaction.menuViewDistance);
+		} else {
+			this.text.campaign.opacity = 0;
+			this.text.reactor.opacity = 0;
+			this.text.detonator.opacity = 0;
+			this.text.practice.opacity = 0;
+			this.text.nextlevel.opacity = 0;
+			this.text.prevlevel.opacity = 0;
+			this.text.help.opacity = 0;
 		}
 		if ((this.state & this.INLEVEL) != 0) {
 			//In a level
@@ -1193,6 +1323,13 @@ Plasmid.prototype = {
 		this.lerp_add(this.text.redo.material, "opacity", this.text.redo.opacity, this.lerpspeed);
 		this.lerp_add(this.text.reset.material, "opacity", this.text.reset.opacity, this.lerpspeed);
 		this.lerp_add(this.text.pause.material, "opacity", this.text.pause.opacity, this.lerpspeed);
+		this.lerp_add(this.text.campaign.material, "opacity", this.text.campaign.opacity, this.lerpspeed);
+		this.lerp_add(this.text.reactor.material, "opacity", this.text.reactor.opacity, this.lerpspeed);
+		this.lerp_add(this.text.detonator.material, "opacity", this.text.detonator.opacity, this.lerpspeed);
+		this.lerp_add(this.text.practice.material, "opacity", this.text.practice.opacity, this.lerpspeed);
+		this.lerp_add(this.text.nextlevel.material, "opacity", this.text.nextlevel.opacity, this.lerpspeed);
+		this.lerp_add(this.text.prevlevel.material, "opacity", this.text.prevlevel.opacity, this.lerpspeed);
+		this.lerp_add(this.text.help.material, "opacity", this.text.help.opacity, this.lerpspeed);
 		if (this.level.ring.visible) {
 			//Fade all segments in
 			for (var i = 0; i < this.current.segments.length; i++) {
@@ -1201,9 +1338,21 @@ Plasmid.prototype = {
 			}
 		}
 	},
+	//Returns whether or not the user can reset
+	level_can_reset: function() {
+		return (this.state & this.HISTORY) != 0 && this.current.generation > 0;
+	},
+	//Returns whether or not the user can undo
+	level_can_undo: function() {
+		return (this.state & this.HISTORY) != 0 && this.current.generation > 0;
+	},
+	//Returns whether or not the user can redo
+	level_can_redo: function() {
+		return (this.state & this.HISTORY) != 0 && this.current.generation < this.current.history.length - 1;
+	},
 	//Resets the level
 	level_reset: function() {
-		if ((this.state & this.HISTORY) != 0 && this.current.generation > 0) {
+		if (this.level_can_reset()) {
 			this.current.generation = 0;
 			this.update_ui();
 			this.level_update();
@@ -1211,7 +1360,7 @@ Plasmid.prototype = {
 	},
 	//Undoes the previous action
 	level_undo: function() {
-		if ((this.state & this.HISTORY) != 0 && this.current.generation > 0) {
+		if (this.level_can_undo()) {
 			this.current.generation--;
 			this.update_ui();
 			this.level_update();
@@ -1219,14 +1368,31 @@ Plasmid.prototype = {
 	},
 	//Redoes. Period.
 	level_redo: function() {
-		if ((this.state & this.HISTORY) != 0 && this.current.generation < this.current.history.length - 1) {
+		if (this.level_can_redo()) {
 			this.current.generation++;
 			this.update_ui();
 			this.level_update();
 		}
 	},
+	//Returns whether or not the user can visit the previous level.
+	level_can_previous: function() {
+		if ((this.savedata.level - 1) in this.levelpacks[this.savedata.levelpack].levels) {
+			return true;
+		} else if ((this.savedata.levelpack - 1) in this.levelpacks) {
+			return true
+		}
+		return false;
+	} //Returns whether or not the user can visit the next level.
+	level_can_next: function() {
+		if ((this.savedata.level + 1) in this.savedata.levelpacks[this.savedata.levelpack]) {
+			return true;
+		} else if ((this.savedata.levelpack + 1) in this.savedata.levelpacks) {
+			return true
+		}
+		return false;
+	}
 	//Decrements and updates the level
-	level_prev: function() {
+	level_previous: function() {
 		if ((this.savedata.level - 1) in this.levelpacks[this.savedata.levelpack].levels) {
 			this.savedata.level--;
 			this.level_load();
@@ -1812,6 +1978,11 @@ Plasmid.prototype = {
 		this.ambient.background.object.visible = false;
 		this.scene.add(this.ambient.background.object);
 
+		//Setup the loading screen
+		this.loading.ring.geometry = new THREE.PlaneGeometry(this.loading.ring.size, this.loading.ring.size)
+		this.loading.ring.object = new THREE.Mesh(this.loading.ring.geometry, this.loading.ring.material);
+		this.loading.ring.object.position = this.loading.ring.position;
+		this.scene.add(this.loading.ring.object);
 		//Handle particles when the loader is complete.
 	},
 	//Sets up the rest after resources are loaded
@@ -1864,6 +2035,9 @@ Plasmid.prototype = {
 				text.material
 			);
 			text.object.position = text.position;
+			if ("rotation" in text) {
+				text.object.rotation.copy(text.rotation);
+			}
 			this.level.object.add(text.object);
 		};
 	},
@@ -1950,7 +2124,11 @@ Plasmid.prototype = {
 
 		//Handle all lerps
 		this.lerp_loop();
-
+		//Handle loading screen
+		if (this.state == this.LOADING) {
+			this.loading.ring.material.uniforms.progress.value = this.utils_lerp(this.loading.ring.material.uniforms.progress.value, this.loading.progress, this.loading.ring.lerpspeed);
+			this.loading.ring.material.uniforms.time.value += this.deltaTime;
+		}
 		//Handle the mouse
 		if (this.interaction.cursor.handleMove) {
 			//Project the mouse position (approximately)
@@ -1973,30 +2151,30 @@ Plasmid.prototype = {
 			this.interaction.cursor.handleMove = false;
 		}
 		if (this.interaction.cursor.handleDown) {
-			if (this.state == this.MAIN) {
-				this.level_load();
-				this.state = this.LEVEL;
-				this.update_ui();
-			} else if ((this.state & this.INLEVEL) != 0) {
-				//Check for undo/redo/reset
-
-				var pressed = false;
-				for (var t in this.text) {
-					var text = this.text[t];
-					if (
-						this.utils_length(
-							this.interaction.cursor.projected.x - text.object.position.x,
-							this.interaction.cursor.projected.y - text.object.position.y) < this.interaction.interactableDistance) {
-						if ("handler" in text) {
-							if (text.handler.call(this) == false) {
-								pressed = true;
-								break;
-							}
+			var pressed = false;
+			for (var t in this.text) {
+				var text = this.text[t];
+				if (
+					this.utils_length(
+						this.interaction.cursor.projected.x - text.object.position.x,
+						this.interaction.cursor.projected.y - text.object.position.y) < this.interaction.interactableDistance) {
+					if ("handler" in text) {
+						if (text.handler.call(this) === false) {
+							pressed = true;
+							break;
 						}
 					}
 				}
-				if (!pressed) {
+			}
+			console.log(pressed);
+			if (!pressed) {
+				if (this.state == this.MAIN) {
+
+				} else if ((this.state & this.INLEVEL) != 0) {
+					//Check for undo/redo/reset
+
 					//Find the nearest handle
+					console.log("Handle!")
 					this.level_nearest();
 					//Select it if it is close enough
 					if (this.interaction.selection.nearestDistance < this.interaction.selection.distance) {
@@ -2280,6 +2458,7 @@ Plasmid.prototype = {
 		//Show everything
 		this.ambient.rays.object.visible = true;
 		this.ambient.background.object.visible = true;
+		this.scene.remove(this.loading.ring.object);
 		//this.current.ring.object.visible = true;
 	},
 	//Creates a deep copy of object.
