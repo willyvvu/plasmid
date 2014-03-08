@@ -39,6 +39,69 @@ var Plasmid = function(canvascontainer) {
 		loadedColor: new THREE.Color(0xFFFFFF),
 		waitingColor: new THREE.Color(0x555555)
 	}
+
+	//Defines constants for interaction and the camera
+	this.interaction = {
+		maxHeight: 0, //The (approximate) maximum visible height of the interaction plane when viewed through the camera
+		interactionDistance: 50, //The z-distance from the origin of interactable objects
+		interactableDistance: 100, //Minimum distance for the cursor to buttons and other interactable objects
+		levelViewDistance: 1000, //The default z-distance from the origin of the camera
+		menuViewDistance: 1100, //The main-menu z-distance from the origin of the camera
+		adjustedProjectionDistance: 60, //The compensation factor for the approximate inverse projection
+		cursor: {
+			position: new THREE.Vector3(),
+			projected: new THREE.Vector3(),
+			visible: false,
+			down: false,
+			handleUp: false,
+			handleMove: false,
+			handleDown: false,
+			handleVisibility: false
+		},
+		selection: {
+			nearest: null, //Used by level_nearest()
+			nearestDistance: Infinity, //Used by level_nearest()
+			distance: 150, //Minimum distance in order to select.
+			selecting: false,
+			fromHandle: null,
+			toHandle: null
+		}
+	}
+	//Defines the current camera field of view and look-at target
+	this.view = {
+		fov: 45, //The field of view of the camera
+		near: 0.1, //The near value of the camera
+		far: 10000, //The far value of the camera
+		lookAt: new THREE.Vector3(0, 0, 0), //Where the camera should look (lerped)
+		_lookAt: new THREE.Vector3(0, 0, 0), //Where the camera should look
+		position: new THREE.Vector3(0, 0, this.interaction.menuViewDistance), //The camera's intended position (lerped)
+		_position: new THREE.Vector3(0, 0, this.interaction.menuViewDistance), //The camera's intended position
+		tilt: new THREE.Vector3(0, 0, 0),
+		_tilt: new THREE.Vector3(0, 0, 0),
+		maxTilt: 100, //The max amount to tilt
+		defaultspeed: 0.05, //How fast to change, by default
+		tiltspeed: 0.1, //How fast to change on device orientation, by default
+		returnspeed: 0.02, //How fast to return to the cursor
+		returning: false, //Returning to the cursor?
+		snap: 0, //The speed to transition the tilt
+	}
+	//Defines which image assets are needed, and stores them once loaded.
+	this.images = {
+		source: {
+			particle: "Particle.png",
+			logo: "Logo.png",
+			rays: "Rays.png",
+			handle: "Handle.png",
+			complete: "Complete.png",
+			counter: "Counter.png",
+			history: "History.png",
+			mainmenu: "MainMenu.png",
+			menucontrols: "MenuControls.png",
+			credits: "Credits.png"
+		},
+		count: 0,
+		loaded: 0
+	}
 	//Holds settings for text, to be used where needed
 	this.textmaterialsettings = {
 		map: null,
@@ -47,14 +110,110 @@ var Plasmid = function(canvascontainer) {
 		transparent: true,
 		depthWrite: false
 	}
-	//Contains objects that make up the main menu, along with the menu state
-	this.mainmenu = {
+	//Holds and initializes all text
+	this.text = {
 		logo: {
-			object: null,
-			size: 400,
+			width: 400,
 			position: new THREE.Vector3(0, 0, 250), //Where to place the logo
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
+			map: "logo"
+		},
+		credits: {
+			width: 400,
+			position: new THREE.Vector3(0, 0, 250), //Where to place the credits
+			map: "credits"
+		},
+		completionType: {
+			width: 280,
+			//The text that says "genome" or "plasmid" in "plasmid complete"
+			position: new THREE.Vector3(0, 100, 150), //Where to place the text
+			repeat: new THREE.Vector2(1, 1 / 3),
+			offset: new THREE.Vector2(0, 2 / 3),
+			map: "complete"
+		},
+		completionText: {
+			width: 400,
+			//The text that says "complete" in "plasmid complete"
+			position: new THREE.Vector3(0, 0, 251), //Where to place the text
+			repeat: new THREE.Vector2(1, 1 / 3),
+			offset: new THREE.Vector2(0, 1 / 3),
+			map: "complete"
+		},
+		counter: {
+			//The number representing the mutations remaining
+			width: 120,
+			position: new THREE.Vector3(0, 0, 252), //Where to place the text
+			repeat: new THREE.Vector2(1 / 5, 1 / 3),
+			map: "counter"
+		},
+		counterlabel: {
+			//The text that says "mutations left"
+			width: 400,
+			position: new THREE.Vector3(0, -170, 151), //Where to place the text
+			repeat: new THREE.Vector2(1, 1 / 3),
+			map: "counter"
+		},
+		undo: {
+			width: 200,
+			position: new THREE.Vector3(-0, -300, this.interaction.interactionDistance), //Where to place the text
+			repeat: new THREE.Vector2(1, 1 / 3),
+			offset: new THREE.Vector2(0, 2 / 3),
+			map: "history",
+			handler: function() {
+				if ((this.state & this.HISTORY) != 0) {
+					this.level_undo();
+					return false;
+				}
+			}
+		},
+		redo: {
+			width: 200,
+			position: new THREE.Vector3(0, -300, this.interaction.interactionDistance), //Where to place the text
+			repeat: new THREE.Vector2(1, 1 / 3),
+			offset: new THREE.Vector2(0, 1 / 3),
+			map: "history",
+			handler: function() {
+				if ((this.state & this.HISTORY) != 0) {
+					this.level_redo();
+					return false;
+				}
+			}
+		},
+		reset: {
+			width: 200,
+			position: new THREE.Vector3(-0, 300, this.interaction.interactionDistance), //Where to place the text
+			repeat: new THREE.Vector2(1, 1 / 3),
+			offset: new THREE.Vector2(0, 0),
+			map: "history",
+			handler: function() {
+				if ((this.state & this.HISTORY) != 0) {
+					this.level_reset();
+					return false;
+				}
+			}
+		},
+		pause: {
+			width: 300,
+			position: new THREE.Vector3(0, 300, this.interaction.interactionDistance), //Where to place the text
+			repeat: new THREE.Vector2(1, 1 / 4),
+			offset: new THREE.Vector2(0, 1 / 4),
+			map: "menucontrols",
+			handler: function() {
+				if ((this.state & this.INLEVEL) != 0) {
+					this.state = this.MAIN;
+					this.update_ui();
+					return false;
+				}
+			}
 		}
+	}
+	//Contains objects that make up the main menu, along with the menu state
+	// this.mainmenu = {
+	// }
+	//Contains objects and variables for the credits
+	this.credits = {
+		scroll: 0, //The credit scroll amount [0-1]
+		_scroll: 0, //Whether or not to show credits (0|1)
+		duration: 30, //How many seconds it should take
 	}
 	//Contains objects that constitute the background, as well as their settings
 	this.ambient = {
@@ -156,71 +315,12 @@ var Plasmid = function(canvascontainer) {
 				vertexColors: THREE.VertexColors
 			}),
 			updateColors: function() {
-				this.object.geometry.colorsNeedUpdate = true;
+				this.ambient.background.object.geometry.colorsNeedUpdate = true;
 			},
 			geometry: null,
 			colorBottom: new THREE.Color(0x000000),
 			colorTop: new THREE.Color(0x000000)
 		}
-	}
-	//Defines constants for interaction and the camera
-	this.interaction = {
-		maxHeight: 0, //The (approximate) maximum visible height of the interaction plane when viewed through the camera
-		interactionDistance: 50, //The z-distance from the origin of interactable objects
-		interactableDistance: 100, //Minimum distance for the cursor to buttons and other interactable objects
-		levelViewDistance: 1000, //The default z-distance from the origin of the camera
-		menuViewDistance: 1100, //The main-menu z-distance from the origin of the camera
-		adjustedProjectionDistance: 60, //The compensation factor for the approximate inverse projection
-		cursor: {
-			position: new THREE.Vector3(),
-			projected: new THREE.Vector3(),
-			visible: false,
-			down: false,
-			handleUp: false,
-			handleMove: false,
-			handleDown: false,
-			handleVisibility: false
-		},
-		selection: {
-			nearest: null, //Used by level_nearest()
-			nearestDistance: Infinity, //Used by level_nearest()
-			distance: 150, //Minimum distance in order to select.
-			selecting: false,
-			fromHandle: null,
-			toHandle: null
-		}
-	}
-	//Defines the current camera field of view and look-at target
-	this.view = {
-		fov: 45, //The field of view of the camera
-		near: 0.1, //The near value of the camera
-		far: 10000, //The far value of the camera
-		lookAt: new THREE.Vector3(0, 0, 0), //Where the camera should look (lerped)
-		_lookAt: new THREE.Vector3(0, 0, 0), //Where the camera should look
-		position: new THREE.Vector3(0, 0, this.interaction.menuViewDistance), //The camera's intended position (lerped)
-		_position: new THREE.Vector3(0, 0, this.interaction.menuViewDistance), //The camera's intended position
-		tilt: new THREE.Vector3(0, 0, 0),
-		_tilt: new THREE.Vector3(0, 0, 0),
-		maxTilt: 100, //The max amount to tilt
-		defaultspeed: 0.05, //How fast to change, by default
-		tiltspeed: 0.1, //How fast to change on device orientation, by default
-		returnspeed: 0.02, //How fast to return to the cursor
-		returning: false, //Returning to the cursor?
-		snap: 0, //The speed to transition the tilt
-	}
-	//Defines which image assets are needed, and stores them once loaded.
-	this.images = {
-		source: {
-			particle: "Particle.png",
-			logo: "Logo.png",
-			rays: "Rays.png",
-			handle: "Handle.png",
-			complete: "Complete.png",
-			counter: "Counter.png",
-			history: "History.png"
-		},
-		count: 0,
-		loaded: 0
 	}
 	//Defines shaders for use with post-processing.
 	this.shaders = {
@@ -830,53 +930,6 @@ var Plasmid = function(canvascontainer) {
 			ringopacityspeed: 0.02, //How fast to transition opacity of the ring
 			duration: 3.5, //How many seconds it should take
 		},
-		completionType: {
-			//The text that says "genome" or "plasmid" in "plasmid complete"
-			object: null,
-			position: new THREE.Vector3(0, 100, 150), //Where to place the text
-			scale: 0.7,
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-		},
-		completionText: {
-			opacity: 0,
-			//The text that says "complete" in "plasmid complete"
-			object: null,
-			position: new THREE.Vector3(0, 0, 251), //Where to place the text
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-		},
-		counter: {
-			//The number representing the mutations remaining
-			opacity: 0,
-			object: null,
-			size: 120,
-			position: new THREE.Vector3(0, 0, 252), //Where to place the text
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-		},
-		counterlabel: {
-			//The text that says "mutations left"
-			object: null,
-			position: new THREE.Vector3(0, -170, 151), //Where to place the text
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-		},
-		undo: {
-			opacity: 0,
-			size: 200,
-			object: null,
-			position: new THREE.Vector3(-0, -300, this.interaction.interactionDistance), //Where to place the text
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-		},
-		redo: {
-			opacity: 0,
-			object: null,
-			position: new THREE.Vector3(0, -300, this.interaction.interactionDistance), //Where to place the text
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-		},
-		reset: {
-			opacity: 0,
-			object: null,
-			position: new THREE.Vector3(-0, 300, this.interaction.interactionDistance), //Where to place the text
-			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-		},
 		object: new THREE.Object3D(), //The object that holds the entire level.
 		handle: {
 			visible: false,
@@ -1090,46 +1143,62 @@ Plasmid.prototype = {
 	update_ui: function() {
 		if (this.state == this.MAIN) {
 			//Show logo
-			this.mainmenu.logo.object.visible = true;
-			this.lerp_add(this.mainmenu.logo.material, "opacity", 1, this.lerpspeed);
+			this.lerp_add(this.text.logo.material, "opacity", 1, this.lerpspeed);
 			this.lerp_add(this.level.handle.material, "opacity", 0, this.lerpspeed);
+			this.text.completionText.opacity = 0;
 			this.level.ring.visible = true;
+			this.text.counter.opacity = 0;
+			this.text.pause.opacity = 0;
+			this.text.undo.opacity = 0;
+			this.text.reset.opacity = 0;
+			this.text.redo.opacity = 0;
+			this.view.position.set(0, 0, this.interaction.menuViewDistance);
 		}
 		if ((this.state & this.INLEVEL) != 0) {
 			//In a level
 			//Show handles
 			this.lerp_add(this.level.handle.material, "opacity", 1, this.lerpspeed);
 			//Hide logo
-			this.lerp_add(this.mainmenu.logo.material, "opacity", 0, this.lerpspeed);
+			this.lerp_add(this.text.logo.material, "opacity", 0, this.lerpspeed);
 			this.view.position.set(0, 0, this.interaction.levelViewDistance);
 			this.view.lookAt.set(0, 0, 0);
+			this.text.pause.opacity = 1;
 		}
 		if (this.state == this.LEVEL) {
 			//Show counters
-			this.level.counter.opacity = 1;
+			this.text.counter.opacity = 1;
 		}
 		if ((this.state & this.HISTORY) != 0) {
-			this.level.undo.opacity = this.current.generation > 0 ? 1 : 0;
-			this.level.reset.opacity = this.current.generation > 0 ? 1 : 0;
-			this.level.redo.opacity = this.current.generation < this.current.history.length - 1 ? 1 : 0;
+			this.text.undo.opacity = this.current.generation > 0 ? 1 : 0;
+			this.text.reset.opacity = this.current.generation > 0 ? 1 : 0;
+			this.text.redo.opacity = this.current.generation < this.current.history.length - 1 ? 1 : 0;
 		}
-		this.lerp_add(this.level.counter.material, "opacity", this.level.counter.opacity, this.lerpspeed);
-		this.lerp_add(this.level.counterlabel.material, "opacity", this.level.counter.opacity, this.lerpspeed);
-		this.lerp_add(this.level.completionText.material, "opacity", this.level.completionText.opacity, this.lerpspeed);
-		this.lerp_add(this.level.completionType.material, "opacity", this.level.completionText.opacity, this.lerpspeed);
-		this.lerp_add(this.level.undo.material, "opacity", this.level.undo.opacity, this.lerpspeed);
-		this.lerp_add(this.level.redo.material, "opacity", this.level.redo.opacity, this.lerpspeed);
-		this.lerp_add(this.level.reset.material, "opacity", this.level.reset.opacity, this.lerpspeed);
+		if (this.state == this.CREDITS) {
+			this.credits._scroll = 1;
+			//Hide all segments
+			for (var i = 0; i < this.current.segments.length; i++) {
+				var segment = this.current.segments[i];
+				this.lerp_add(segment.object.material.uniforms.opacity, "value", 0, 1);
+			}
+			//Hide everything
+			this.text.completionText.opacity = 0;
+			this.level.ring.visible = false;
+			this.text.counter.opacity = 0;
+		}
+		this.lerp_add(this.text.counter.material, "opacity", this.text.counter.opacity, this.lerpspeed);
+		this.lerp_add(this.text.counterlabel.material, "opacity", this.text.counter.opacity, this.lerpspeed);
+		this.lerp_add(this.text.completionText.material, "opacity", this.text.completionText.opacity, this.lerpspeed);
+		this.lerp_add(this.text.completionType.material, "opacity", this.text.completionText.opacity, this.lerpspeed);
+		this.lerp_add(this.text.undo.material, "opacity", this.text.undo.opacity, this.lerpspeed);
+		this.lerp_add(this.text.redo.material, "opacity", this.text.redo.opacity, this.lerpspeed);
+		this.lerp_add(this.text.reset.material, "opacity", this.text.reset.opacity, this.lerpspeed);
+		this.lerp_add(this.text.pause.material, "opacity", this.text.pause.opacity, this.lerpspeed);
 		if (this.level.ring.visible) {
 			//Fade all segments in
 			for (var i = 0; i < this.current.segments.length; i++) {
 				var segment = this.current.segments[i];
 				this.lerp_add(segment.object.material.uniforms.opacity, "value", 1, this.lerpspeed);
 			}
-		}
-		if (this.state == this.CREDITS) {
-			console.warn("Credits are not implemented yet!");
-			this.level_update();
 		}
 	},
 	//Resets the level
@@ -1156,25 +1225,46 @@ Plasmid.prototype = {
 			this.level_update();
 		}
 	},
-	//Increments and updates the level
+	//Decrements and updates the level
+	level_prev: function() {
+		if ((this.savedata.level - 1) in this.levelpacks[this.savedata.levelpack].levels) {
+			this.savedata.level--;
+			this.level_load();
+			return true;
+		} else {
+			if ((this.savedata.levelpack - 1) in this.levelpacks) {
+				this.savedata.levelpack--;
+				this.savedata.level = 0;
+				this.level_load();
+				return true;
+			} else {
+				if (this.completion._complete > 0) {
+					console.log("GAME COMPLETE!");
+					this.state = this.CREDITS;
+				}
+			}
+		}
+		return false;
+	}, //Increments and updates the level
 	level_next: function() {
 		if ((this.savedata.level + 1) in this.levelpacks[this.savedata.levelpack].levels) {
 			this.savedata.level++;
 			this.level_load();
+			return true;
 		} else {
 			if ((this.savedata.levelpack + 1) in this.levelpacks) {
 				this.savedata.levelpack++;
 				this.savedata.level = 0;
 				this.level_load();
+				return true;
 			} else {
-				console.log("GAME COMPLETE!");
-				this.state = this.CREDITS;
-				this.update_ui();
-				//Break the cycle of going to the next level.
-				this.level.completion.complete = 1;
-				this.level.completion._complete = 1;
+				if (this.completion._complete > 0) {
+					console.log("GAME COMPLETE!");
+					this.state = this.CREDITS;
+				}
 			}
 		}
+		return false;
 	},
 	//Gets the nearest handle from a position, setting the results into the interaction object
 	level_nearest: function() {
@@ -1222,14 +1312,15 @@ Plasmid.prototype = {
 				this.current.generation++;
 				if ((this.state & this.HISTORY) != 0) {
 					this.current.history.splice(this.current.generation);
-					this.level.undo.opacity = 1;
-					this.level.redo.opacity = 0;
-					this.level.reset.opacity = 1;
+					this.text.undo.opacity = 1;
+					this.text.redo.opacity = 0;
+					this.text.reset.opacity = 1;
 					this.update_ui();
 				}
 				this.current.history[this.current.generation] = this.current.locations;
 				this.level_update();
 			}
+			this.save();
 		}
 	},
 	//Checks to see if the level is completed
@@ -1283,10 +1374,11 @@ Plasmid.prototype = {
 				this.current.history = this.current.save.history;
 				this.current.generation = 0;
 				this.level_build();
+				this.save();
 				return;
 			}
 		}
-		console.log("Save is invalid!");
+		console.error("Save is invalid!");
 	},
 	//Builds and sets up everything in preparation for the level
 	level_build: function() {
@@ -1548,19 +1640,19 @@ Plasmid.prototype = {
 		if (this.state == this.LEVELEDITOR) {
 			number = this.current.generation;
 		}
-		this.level.counter.material.map.offset.x = (number % 5) / 5;
-		this.level.counter.material.map.offset.y = 2 / 3 - Math.floor(number / 5) / 3;
+		this.text.counter.material.map.offset.x = (number % 5) / 5;
+		this.text.counter.material.map.offset.y = 2 / 3 - Math.floor(number / 5) / 3;
 		//Check for completion
 		if (this.state == this.LEVELEDITOR) {
 			this.lerp_add(this.shaders.desaturate.uniforms.amount, "value", 0, this.lerpspeed);
 			if (this.level_iscomplete()) {
 				//Plasmid complete
-				this.level.completionType.material.map.offset.y = 2 / 3;
-				this.level.completionText.opacity = 1;
-				this.level.counter.opacity = 0;
+				this.text.completionType.material.map.offset.y = 2 / 3;
+				this.text.completionText.opacity = 1;
+				this.text.counter.opacity = 0;
 			} else {
-				this.level.completionText.opacity = 0;
-				this.level.counter.opacity = 1;
+				this.text.completionText.opacity = 0;
+				this.text.counter.opacity = 1;
 			}
 			this.update_ui();
 		} else if ((this.state & this.INLEVEL) != 0) {
@@ -1672,20 +1764,22 @@ Plasmid.prototype = {
 		this.resize();
 		this.canvascontainer.appendChild(this.renderer.domElement)
 
+		//Load data
+		if ("localStorage" in window) {
+			if ("plasmid" in window.localStorage) {
+				try {
+					this.savedata = JSON.parse(window.localStorage.plasmid);
+				} catch (e) {
+					console.error("Save is invalid!");
+				}
+			}
+		}
 		//Start the loader!
 		this.loader_load();
 		this.setup_preload();
 	},
 	//Sets up everything you can before resources are loaded
 	setup_preload: function() {
-		//Sets up the logo as well as the menu.
-		this.mainmenu.logo.material.map = this.images.logo;
-		this.mainmenu.logo.geometry = new THREE.PlaneGeometry(this.mainmenu.logo.size, this.mainmenu.logo.size);
-		this.mainmenu.logo.object = new THREE.Mesh(this.mainmenu.logo.geometry, this.mainmenu.logo.material);
-		this.mainmenu.logo.object.position = this.mainmenu.logo.position;
-		this.mainmenu.logo.object.visible = false;
-		this.scene.add(this.mainmenu.logo.object);
-
 		//Sets up the level
 		this.scene.add(this.level.object);
 		//Get the handle texture bound
@@ -1752,79 +1846,26 @@ Plasmid.prototype = {
 			this.ambient.particles.object.renderDepth = -1e20;
 			this.scene.add(this.ambient.particles.object);
 		}
-
-		//Get the completion text ready
-		this.images.complete.repeat.y = 1 / 3;
-		this.level.completionText.material.map = this.images.complete;
-		this.level.completionText.material.map.offset.y = 1 / 3;
-		this.level.completionText.object = new THREE.Mesh(
-			new THREE.PlaneGeometry(this.mainmenu.logo.size, this.mainmenu.logo.size / 3),
-			this.level.completionText.material
-		);
-		this.level.completionText.object.position.copy(this.level.completionText.position);
-		this.level.object.add(this.level.completionText.object);
-
-		this.level.completionType.material.map = this.images.complete.clone();
-		this.level.completionType.material.map.needsUpdate = true;
-		this.level.completionType.object = new THREE.Mesh(
-			new THREE.PlaneGeometry(this.mainmenu.logo.size, this.mainmenu.logo.size / 3),
-			this.level.completionType.material
-		);
-		this.level.completionType.object.position.copy(this.level.completionType.position);
-		this.level.completionType.object.scale.set(this.level.completionType.scale, this.level.completionType.scale, 1);
-		this.level.object.add(this.level.completionType.object);
-
-		//Get the remaining moves text ready
-		this.images.counter.repeat.y = 1 / 3;
-		this.images.counter.repeat.x = 1 / 5;
-		this.level.counter.material.map = this.images.counter;
-		this.level.counter.object = new THREE.Mesh(
-			new THREE.PlaneGeometry(this.level.counter.size, 5 * this.level.counter.size / 3),
-			this.level.counter.material
-		);
-		this.level.counter.object.position.copy(this.level.counter.position);
-		this.level.object.add(this.level.counter.object);
-
-		this.level.counterlabel.material.map = this.images.counter.clone();
-		this.level.counterlabel.material.map.repeat.x = 1;
-		this.level.counterlabel.material.map.needsUpdate = true;
-		this.level.counterlabel.object = new THREE.Mesh(
-			new THREE.PlaneGeometry(this.mainmenu.logo.size, this.mainmenu.logo.size / 3),
-			this.level.counterlabel.material
-		);
-		this.level.counterlabel.object.position.copy(this.level.counterlabel.position);
-		this.level.object.add(this.level.counterlabel.object);
-
-		//History labels
-		this.images.history.repeat.y = 1 / 3;
-		this.level.undo.material.map = this.images.history;
-		this.level.undo.material.map.offset.y = 2 / 3;
-		this.level.undo.object = new THREE.Mesh(
-			new THREE.PlaneGeometry(this.level.undo.size, this.level.undo.size / 3),
-			this.level.undo.material
-		);
-		this.level.undo.object.position = this.level.undo.position;
-		this.level.object.add(this.level.undo.object);
-
-		this.level.redo.material.map = this.images.history.clone();
-		this.level.redo.material.map.offset.y = 1 / 3;
-		this.level.redo.material.map.needsUpdate = true;
-		this.level.redo.object = new THREE.Mesh(
-			new THREE.PlaneGeometry(this.level.undo.size, this.level.undo.size / 3),
-			this.level.redo.material
-		);
-		this.level.redo.object.position = this.level.redo.position;
-		this.level.object.add(this.level.redo.object);
-
-		this.level.reset.material.map = this.images.history.clone();
-		this.level.reset.material.map.offset.y = 0;
-		this.level.reset.material.map.needsUpdate = true;
-		this.level.reset.object = new THREE.Mesh(
-			new THREE.PlaneGeometry(this.level.undo.size, this.level.undo.size / 3),
-			this.level.reset.material
-		);
-		this.level.reset.object.position = this.level.reset.position;
-		this.level.object.add(this.level.reset.object);
+		//Setup text
+		for (var t in this.text) {
+			var text = this.text[t];
+			text.opacity = 0;
+			text.material = new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings));
+			text.material.map = this.images[text.map].clone();
+			text.material.map.needsUpdate = true;
+			if ("offset" in text) {
+				text.material.map.offset.copy(text.offset);
+			}
+			if ("repeat" in text) {
+				text.material.map.repeat.copy(text.repeat);
+			}
+			text.object = new THREE.Mesh(
+				new THREE.PlaneGeometry(text.width, text.width * text.material.map.repeat.y / text.material.map.repeat.x),
+				text.material
+			);
+			text.object.position = text.position;
+			this.level.object.add(text.object);
+		};
 	},
 	//Adds a value to be lerped over the loop timer
 	lerp_addAngle: function(object, field, target, speed, callback, step) {
@@ -1872,7 +1913,7 @@ Plasmid.prototype = {
 				current.object[current.field] = this.utils_lerp(current.object[current.field], current.object["_" + current.field], current.speed);
 			}
 			if (current.step !== undefined) {
-				current.step();
+				current.step.call(this);
 			}
 			if (current.object[current.field] instanceof THREE.Color) {
 				if (Math.abs(current.object[current.field].r - current.object["_" + current.field].r) < this.lerpepsilon &&
@@ -1881,7 +1922,7 @@ Plasmid.prototype = {
 				) {
 					current.object[current.field].copy(current.object["_" + current.field]);
 					if (current.callback !== undefined) {
-						current.callback();
+						current.callback.call(this);
 					}
 					this.lerpqueue.splice(i, 1);
 					i--;
@@ -1940,21 +1981,18 @@ Plasmid.prototype = {
 				//Check for undo/redo/reset
 
 				var pressed = false;
-				if ((this.state & this.HISTORY) != 0) {
-					var test = this.level.undo.position;
-					if (this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
-						this.level_undo();
-						pressed = true;
-					}
-					test = this.level.redo.position;
-					if (!pressed && this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
-						this.level_redo();
-						pressed = true;
-					}
-					test = this.level.reset.position;
-					if (!pressed && this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
-						this.level_reset();
-						pressed = true;
+				for (var t in this.text) {
+					var text = this.text[t];
+					if (
+						this.utils_length(
+							this.interaction.cursor.projected.x - text.object.position.x,
+							this.interaction.cursor.projected.y - text.object.position.y) < this.interaction.interactableDistance) {
+						if ("handler" in text) {
+							if (text.handler.call(this) == false) {
+								pressed = true;
+								break;
+							}
+						}
 					}
 				}
 				if (!pressed) {
@@ -2037,7 +2075,26 @@ Plasmid.prototype = {
 		this.camera.position.y += this.view.tilt.y * this.view.maxTilt;
 		this.view._lookAt.lerp(this.view.lookAt, this.lerpspeed);
 		this.camera.lookAt(this.view._lookAt);
-
+		//Complete credits
+		if (this.credits._scroll > 0) {
+			if (this.credits.scroll < 1) {
+				this.credits.scroll = Math.min(this.credits.scroll + this.deltaTime / this.credits.duration, 1);
+				this.credits.text.material.opacity = 1;
+				this.level.object.position.y = -600 + 1200 * this.credits.scroll;
+			} else {
+				//Finish up
+				this.credits.scroll = 0;
+				this.credits._scroll = 0;
+				this.credits.text.material.opacity = 0;
+				this.level.object.position.y = 0;
+				this.level.object.position.z = 0;
+				if (this.state == this.CREDITS) {
+					this.state = this.MAIN;
+					this.level_update();
+					this.update_ui();
+				}
+			}
+		}
 		//Complete the level (if needed)
 		if (this.level.completion._complete > 0) {
 			if (this.level.completion.complete < 1) {
@@ -2053,11 +2110,12 @@ Plasmid.prototype = {
 				//Fade the handle and counter opacity
 				if (this.level.completion.complete > 0 && this.level.completion._complete < 2) {
 					this.lerp_add(this.level.handle.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.level.counter.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.level.counterlabel.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.level.undo.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.level.redo.material, "opacity", 0, this.level.completion.handleopacityspeed);
-					this.lerp_add(this.level.reset.material, "opacity", 0, this.level.completion.handleopacityspeed);
+					this.lerp_add(this.text.counter.material, "opacity", 0, this.level.completion.handleopacityspeed);
+					this.lerp_add(this.text.counterlabel.material, "opacity", 0, this.level.completion.handleopacityspeed);
+					this.lerp_add(this.text.undo.material, "opacity", 0, this.level.completion.handleopacityspeed);
+					this.lerp_add(this.text.pause.material, "opacity", 0, this.level.completion.handleopacityspeed);
+					this.lerp_add(this.text.redo.material, "opacity", 0, this.level.completion.handleopacityspeed);
+					this.lerp_add(this.text.reset.material, "opacity", 0, this.level.completion.handleopacityspeed);
 
 					this.level.completion._complete = 2;
 				}
@@ -2075,47 +2133,55 @@ Plasmid.prototype = {
 						this.level.completion._complete = 4;
 						if ((this.savedata.level + 1) in this.current.pack.levels) {
 							//Plasmid complete
-							this.level.completionType.material.map.offset.y = 2 / 3;
+							this.text.completionType.material.map.offset.y = 2 / 3;
 						} else {
 							//Genome complete
-							this.level.completionType.material.map.offset.y = 0;
+							this.text.completionType.material.map.offset.y = 0;
 						}
-						this.lerp_add(this.level.completionText.material, "opacity", 1, this.lerpspeed);
-						this.lerp_add(this.level.completionType.material, "opacity", 1, this.lerpspeed);
+						this.lerp_add(this.text.completionText.material, "opacity", 1, this.lerpspeed);
+						this.lerp_add(this.text.completionType.material, "opacity", 1, this.lerpspeed);
 					}
 					var mapped = this.utils_map(this.level.completion.complete, 0.3, 0.7, 0, 0.5);
 					this.level.object.position.z = mapped * mapped * this.interaction.levelViewDistance;
 					p.ambient.particles.material.uniforms.offset.value.z = 0.75 * mapped * mapped;
 				}
 
-				//Fly it out and in
+				//Fly it out
 				if (this.level.completion.complete > 0.7 && this.level.completion.complete < 0.8) {
-					//Fly out
 					var mapped = this.utils_map(this.level.completion.complete, 0.7, 0.8, 0.5, 1);
-					this.level.completionText.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
-					this.level.completionType.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
+					this.text.completionText.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
+					this.text.completionType.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
 					this.level.object.position.z = mapped * mapped * this.interaction.levelViewDistance;
 					p.ambient.particles.material.uniforms.offset.value.z = 0.75 * mapped * mapped;
 				}
 				//Fly in
 				if (this.level.completion.complete > 0.8) {
-					var mapped = this.utils_map(this.level.completion.complete, 0.8, 1, 1, 0);
-					this.level.object.position.z = mapped * mapped * this.level.completion.rearDistance;
-					p.ambient.particles.material.uniforms.offset.value.z = 0.25 * -mapped * mapped;
 					//Update new level
 					if (this.level.completion._complete < 5) {
 						this.level.completion._complete = 5;
 						//Remove level complete text
-						this.lerp_add(this.level.completionText.material, "opacity", 0, 1);
-						this.lerp_add(this.level.completionType.material, "opacity", 0, 1);
+						this.lerp_add(this.text.completionText.material, "opacity", 0, 1);
+						this.lerp_add(this.text.completionType.material, "opacity", 0, 1);
 						//Make the new level.
 						this.level_next();
-						//Fade all segments in.
-						for (var i = 0; i < this.current.segments.length; i++) {
-							var segment = this.current.segments[i]
-							segment.object.material.uniforms.opacity.value = 0;
-							this.lerp_add(segment.object.material.uniforms.opacity, "value", 1, this.level.completion.ringopacityspeed);
+						if (this.state == this.CREDITS) {
+							//Hide all segments
+							for (var i = 0; i < this.current.segments.length; i++) {
+								var segment = this.current.segments[i];
+								this.lerp_add(segment.object.material.uniforms.opacity, "value", 0, 1);
+							}
+						} else {
+							//Fade all segments in.
+							for (var i = 0; i < this.current.segments.length; i++) {
+								var segment = this.current.segments[i]
+								segment.object.material.uniforms.opacity.value = 0;
+								this.lerp_add(segment.object.material.uniforms.opacity, "value", 1, this.level.completion.ringopacityspeed);
+							}
 						}
+					} else {
+						var mapped = this.utils_map(this.level.completion.complete, 0.8, 1, 1, 0);
+						this.level.object.position.z = mapped * mapped * this.level.completion.rearDistance;
+						p.ambient.particles.material.uniforms.offset.value.z = 0.25 * -mapped * mapped;
 					}
 				}
 			} else {
@@ -2123,9 +2189,10 @@ Plasmid.prototype = {
 				this.level.completion.complete = 0;
 				this.level.completion._complete = 0;
 				this.shaders.displace.uniforms.phase.value = 0;
-				this.level.completionText.object.position.copy(this.level.completionText.position);
-				this.level.completionType.object.position.copy(this.level.completionType.position);
 				this.level.object.position.z = 0;
+				if (this.state == this.CREDITS) {
+					this.update_ui();
+				}
 				if (this.state == this.DISABLED) {
 					this.state = this.LEVEL;
 					this.update_ui();
@@ -2168,9 +2235,16 @@ Plasmid.prototype = {
 		}
 		//Adjust the undo/reset/redo button positions
 		var distance = this.interaction.maxHeight * this.size.x / this.size.y - 150;
-		this.level.undo.position.x = -distance;
-		this.level.redo.position.x = distance;
-		this.level.reset.position.x = -distance;
+		this.text.undo.position.x = -distance;
+		this.text.redo.position.x = distance;
+		this.text.pause.position.x = distance;
+		this.text.reset.position.x = -distance;
+	},
+	//Saves the savedata to localStorage
+	save: function() {
+		if ("localStorage" in window) {
+			window.localStorage.plasmid = JSON.stringify(this.savedata);
+		}
 	},
 	//Loads all the images
 	loader_load: function() {
@@ -2202,7 +2276,7 @@ Plasmid.prototype = {
 		this.view.lookAt.copy(this.view._lookAt);
 		this.ambient.background.colorBottom.copy(this.ambient.background._colorBottom);
 		this.ambient.background.colorTop.copy(this.ambient.background._colorTop);
-		this.mainmenu.logo.material.opacity = this.mainmenu.logo.material._opacity;
+		this.text.logo.material.opacity = this.text.logo.material._opacity;
 		//Show everything
 		this.ambient.rays.object.visible = true;
 		this.ambient.background.object.visible = true;
