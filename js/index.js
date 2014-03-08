@@ -15,14 +15,20 @@ var Plasmid = function(canvascontainer) {
 	this.composer = null;
 	//Whether or not to use the post-processing chain
 	this.usePostProcess = true;
-	this.useparticles = true;
+	this.useParticles = true;
+	this.useAnaglpyh = window.location.hash.contains("a");
+	//Modifiers
+	this.INLEVEL = 128;
+	this.HISTORY = 256;
 	//Constants
 	this.LOADING = 0;
-	this.MAIN = 1;
-	this.LEVELSELECT = 2;
-	this.LEVEL = 3;
-	this.DISABLED = 5;
-	this.ARCADE = 4;
+	this.DISABLED = 1;
+	this.MAIN = 2;
+	this.CREDITS = 3;
+	this.LEVEL = 10 | this.INLEVEL | this.HISTORY;
+	this.LEVELSELECT = 11;
+	this.ARCADE = 20;
+	this.LEVELEDITOR = 6 | this.INLEVEL | this.HISTORY;
 	this.lerpspeed = 0.05; //How fast to lerp
 	this.lerpepsilon = 0.001; //When to stop lerping (closeness)
 	this.lerpqueue = [];
@@ -39,15 +45,14 @@ var Plasmid = function(canvascontainer) {
 		opacity: 0,
 		blending: THREE.AdditiveBlending,
 		transparent: true,
-		depthWrite: false,
-		depthTest: false
+		depthWrite: false
 	}
 	//Contains objects that make up the main menu, along with the menu state
 	this.mainmenu = {
 		logo: {
 			object: null,
-			size: 450,
-			position: new THREE.Vector3(0, 0, 100), //Where to place the logo
+			size: 400,
+			position: new THREE.Vector3(0, 0, 250), //Where to place the logo
 			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
 		}
 	}
@@ -65,7 +70,7 @@ var Plasmid = function(canvascontainer) {
 		},
 		particles: {
 			object: null,
-			boxSize: new THREE.Vector3(1500, 1000, 1000),
+			boxSize: new THREE.Vector3(1500, 1000, 1800),
 			geometry: new THREE.BufferGeometry(),
 			numParticles: 256,
 			toMaxVelocity: 15,
@@ -73,11 +78,13 @@ var Plasmid = function(canvascontainer) {
 			material: new THREE.ShaderMaterial({
 				transparent: true,
 				blending: THREE.AdditiveBlending,
-				depthWrite: false,
+				alphaTest: 0.5,
+				//depthWrite: false,
+				//depthTest: false,
 				uniforms: {
 					"opacity": {
 						"type": "f",
-						"value": 0.3
+						"value": this.useAnaglpyh ? 1 : 0.3
 					},
 					"map": {
 						"type": "t",
@@ -119,7 +126,7 @@ var Plasmid = function(canvascontainer) {
 					"attribute float velocity;",
 					"varying float fade;",
 					"void main(){",
-					"vec3 pos=position+offset;",
+					"vec3 pos=position + boxSize*offset;",
 					"pos.y+=time*velocity;",
 					"pos.x=mod(pos.x,boxSize.x)-boxSize.x*0.5;",
 					"pos.y=mod(pos.y,boxSize.y)-boxSize.y*0.5;",
@@ -136,7 +143,7 @@ var Plasmid = function(canvascontainer) {
 					"varying float fade;",
 					"void main() {",
 					"gl_FragColor = texture2D( map, vec2( gl_PointCoord.x, 1.0 - gl_PointCoord.y ) );",
-					"gl_FragColor.w *= opacity * fade;",
+					"gl_FragColor.w = opacity * fade;",
 					"}"
 				].join("\n")
 			})
@@ -159,9 +166,10 @@ var Plasmid = function(canvascontainer) {
 	//Defines constants for interaction and the camera
 	this.interaction = {
 		maxHeight: 0, //The (approximate) maximum visible height of the interaction plane when viewed through the camera
-		interactionDistance: 25, //The z-distance from the origin of interactable objects
+		interactionDistance: 50, //The z-distance from the origin of interactable objects
 		interactableDistance: 100, //Minimum distance for the cursor to buttons and other interactable objects
-		defaultViewDistance: 1000, //The default z-distance from the origin of the camera
+		levelViewDistance: 1000, //The default z-distance from the origin of the camera
+		menuViewDistance: 1100, //The main-menu z-distance from the origin of the camera
 		adjustedProjectionDistance: 60, //The compensation factor for the approximate inverse projection
 		cursor: {
 			position: new THREE.Vector3(),
@@ -189,8 +197,8 @@ var Plasmid = function(canvascontainer) {
 		far: 10000, //The far value of the camera
 		lookAt: new THREE.Vector3(0, 0, 0), //Where the camera should look (lerped)
 		_lookAt: new THREE.Vector3(0, 0, 0), //Where the camera should look
-		position: new THREE.Vector3(0, 0, this.interaction.defaultViewDistance), //The camera's intended position (lerped)
-		_position: new THREE.Vector3(0, 0, this.interaction.defaultViewDistance), //The camera's intended position
+		position: new THREE.Vector3(0, 0, this.interaction.menuViewDistance), //The camera's intended position (lerped)
+		_position: new THREE.Vector3(0, 0, this.interaction.menuViewDistance), //The camera's intended position
 		tilt: new THREE.Vector3(0, 0, 0),
 		_tilt: new THREE.Vector3(0, 0, 0),
 		maxTilt: 100, //The max amount to tilt
@@ -300,8 +308,8 @@ var Plasmid = function(canvascontainer) {
 				"uniform sampler2D tDiffuse;",
 				"varying vec2 vUv;",
 				"void main() {",
-				"float toCenter=length(vUv-vec2(0.5,0.5));",
-				"gl_FragColor=texture2D(tDiffuse,vUv)*clamp(1.2-toCenter,0.0,1.0);",
+				"float toCenter= length(vec2(0.9,1.0)*(vUv-vec2(0.5,0.5)));",
+				"gl_FragColor=texture2D(tDiffuse,vUv)*clamp(1.0-toCenter*toCenter,0.2,1.0);",
 				"}"
 			].join("\n")
 		},
@@ -411,286 +419,376 @@ var Plasmid = function(canvascontainer) {
 		}
 	}
 	//Contains data for each level and level pack. Time to call in the level designers!
-	this.levelpacks = [{
+	this.levelpacks = [
+		//Intro
+		{
 			ambient: {
 				//music:"",
 				background: {
-					colorTop: new THREE.Color(0x00CC00),
-					colorBottom: new THREE.Color(0x000000)
+					colorTop: new THREE.Color(0x009900),
+					colorBottom: new THREE.Color(0x002200)
 				},
 				palette: [
 					new THREE.Color(0x008800),
 					new THREE.Color(0x5AFF9F),
-					new THREE.Color(0x99FF00),
+					new THREE.Color(0xCCFF00),
 					new THREE.Color(0x00CC00)
 				]
 			},
-			levels: [{
-					segments: [{
-						from: 1,
-						to: 0
-					}, {
-						from: 1,
-						to: 2
-					}, {
-						from: 2,
-						to: 3
-					}, {
-						from: 3,
-						to: 0
-					}],
-					locations: [
-						[0, 1, 2, 3]
-					],
-					generations: 1
-				}, {
-					segments: [{
-						"from": 2,
-						"to": 1
-					}, {
-						"from": 1,
-						"to": 0
-					}, {
-						"from": 2,
-						"to": 3
-					}, {
-						"from": 3,
-						"to": 0
-					}],
-					locations: [
-						[0, 1, 2, 3]
-					],
-					generations: 1
-				}, {
-					segments: [{
-						"from": 0,
-						"to": 1
-					}, {
-						"from": 2,
-						"to": 1
-					}, {
-						"from": 2,
-						"to": 3
-					}, {
-						"from": 0,
-						"to": 3
-					}],
-					locations: [
-						[0, 1, 2, 3]
-					],
-					generations: 2
-				}, {
-					segments: [{
-						"from": 1,
-						"to": 0
-					}, {
-						"from": 3,
-						"to": 2
-					}, {
-						"from": 3,
-						"to": 0
-					}, {
-						"from": 2,
-						"to": 1
-					}],
-					locations: [
-						[0, 1, 2, 3]
-					],
-					generations: 2
-				}, {
-					segments: [{
-						"from": 0,
-						"to": 1
-					}, {
-						"from": 2,
-						"to": 3
-					}, {
-						"from": 2,
-						"to": 1
-					}, {
-						"from": 3,
-						"to": 0
-					}],
-					locations: [
-						[0, 1, 2, 3]
-					],
-					generations: 2
-				},
-				//TODO:LATER!
+			levels: [
+				//1 x Single
 				{
-					segments: [{
-						"from": 2,
-						"to": 1
-					}, {
-						"from": 3,
-						"to": 2
-					}, {
-						"from": 0,
-						"to": 1
-					}, {
-						"from": 3,
-						"to": 0
-					}],
-					locations: [
-						[0, 1, 2, 3]
-					],
-					generations: 2
-				}, {
-					segments: [{
-						"from": 2,
-						"to": 1
-					}, {
-						"from": 3,
-						"to": 2
-					}, {
+					"segments": [{
 						"from": 1,
 						"to": 0
 					}, {
+						"from": 1,
+						"to": 2
+					}, {
+						"from": 2,
+						"to": 3
+					}, {
 						"from": 3,
 						"to": 0
 					}],
-					locations: [
+					"locations": [
 						[0, 1, 2, 3]
 					],
-					generations: 3
-				}, {
-					segments: [{
+					"generations": 1
+				},
+				//2 x singles across the circle
+				{
+					"segments": [{
 						"from": 0,
+						"to": 1
+					}, {
+						"from": 2,
 						"to": 1
 					}, {
 						"from": 2,
 						"to": 3
 					}, {
+						"from": 0,
+						"to": 3
+					}],
+					"locations": [
+						[0, 1, 2, 3]
+					],
+					"generations": 2
+				},
+				//2 x singles next to each other
+				{
+					"segments": [{
 						"from": 1,
-						"to": 2
+						"to": 0
+					}, {
+						"from": 2,
+						"to": 1
+					}, {
+						"from": 2,
+						"to": 3
 					}, {
 						"from": 3,
 						"to": 0
 					}],
-					locations: [
+					"locations": [
 						[0, 1, 2, 3]
 					],
-					generations: 3
-				}, {
-					segments: [{
+					"generations": 2
+				},
+				// 1 x Double
+				{
+					"segments": [{
+						"from": 2,
+						"to": 1
+					}, {
+						"from": 1,
+						"to": 0
+					}, {
+						"from": 2,
+						"to": 3
+					}, {
+						"from": 3,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3]
+					],
+					"generations": 1
+				},
+				//Single next to a double 
+				{
+					"segments": [{
+						"from": 1,
+						"to": 0
+					}, {
+						"from": 3,
+						"to": 2
+					}, {
 						"from": 2,
 						"to": 1
 					}, {
 						"from": 3,
-						"to": 2
-					}, {
-						"from": 0,
-						"to": 3
-					}, {
-						"from": 1,
 						"to": 0
 					}],
-					locations: [
+					"locations": [
 						[0, 1, 2, 3]
 					],
-					generations: 3
+					"generations": 2
 				}
 			]
-		}, {
+		},
+		//Testing the waters
+		{
+			ambient: {
+				//music:"",
+				background: {
+					colorTop: new THREE.Color(0x6666CC),
+					colorBottom: new THREE.Color(0x003355)
+				},
+				palette: [
+					new THREE.Color(0x4650AD),
+					new THREE.Color(0x06FFC5),
+					new THREE.Color(0x71DEE8),
+					new THREE.Color(0x0099FF)
+				]
+			},
+			levels: [
+				//2 x Double switch
+				{
+					"segments": [{
+						"from": 2,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 2
+					}, {
+						"from": 0,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3]
+					],
+					"generations": 2
+				},
+				//2 x Double, 1 x Single
+				{
+					"segments": [{
+						"from": 2,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 2
+					}, {
+						"from": 1,
+						"to": 0
+					}, {
+						"from": 3,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3]
+					],
+					"generations": 3
+				},
+				//Transposition: 1 x Double, 2 x Single
+				{
+					"segments": [{
+						"from": 0,
+						"to": 1
+					}, {
+						"from": 2,
+						"to": 3
+					}, {
+						"from": 1,
+						"to": 2
+					}, {
+						"from": 3,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3]
+					],
+					"generations": 3
+				},
+				//2 x Single, 1 x Double
+				{
+					"segments": [{
+						"from": 0,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 2
+					}, {
+						"from": 1,
+						"to": 2
+					}, {
+						"from": 0,
+						"to": 3
+					}],
+					"locations": [
+						[0, 1, 2, 3]
+					],
+					"generations": 3
+				},
+				//3 x Double!
+				{
+					"segments": [{
+						"from": 2,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 2
+					}, {
+						"from": 0,
+						"to": 3
+					}, {
+						"from": 1,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3]
+					],
+					"generations": 3
+				}
+			]
+		},
+		//Heating up
+		{
 			ambient: {
 				//music:"",
 				background: {
 					colorTop: new THREE.Color(0xDD0000),
-					colorBottom: new THREE.Color(0xFFEE00)
+					colorBottom: new THREE.Color(0xCC8800)
 				},
 				palette: [
 					new THREE.Color(0xFF1F00),
-					new THREE.Color(0xFFC400),
+					new THREE.Color(0xFFA000),
 					new THREE.Color(0xFFFB00),
-					new THREE.Color(0xFF8000),
+					new THREE.Color(0xFF6C00),
 					new THREE.Color(0xFFFF55)
 				]
 			},
-			levels: [{
-				segments: [{
-					"from": 0,
-					"to": 1
-				}, {
-					"from": 2,
-					"to": 3
-				}, {
-					"from": 3,
-					"to": 4
-				}, {
-					"from": 1,
-					"to": 2
-				}, {
-					"from": 4,
-					"to": 0
-				}],
-				locations: [
-					[0, 1, 2, 3, 4]
-				],
-				generations: 3
-			}, {
-				segments: [{
-					"from": 0,
-					"to": 1
-				}, {
-					"from": 3,
-					"to": 4
-				}, {
-					"from": 3,
-					"to": 2
-				}, {
-					"from": 1,
-					"to": 2
-				}, {
-					"from": 4,
-					"to": 0
-				}],
-				locations: [
-					[0, 1, 2, 3, 4]
-				],
-				generations: 3
-			}, {
-				segments: [{
-					"from": 1,
-					"to": 0
-				}, {
-					"from": 2,
-					"to": 3
-				}, {
-					"from": 4,
-					"to": 0
-				}, {
-					"from": 2,
-					"to": 1
-				}, {
-					"from": 3,
-					"to": 4
-				}],
-				locations: [
-					[0, 1, 2, 3, 4]
-				],
-				generations: 3
-			}, {
-				segments: [{
-					"from": 0,
-					"to": 1
-				}, {
-					"from": 3,
-					"to": 2
-				}, {
-					"from": 1,
-					"to": 2
-				}, {
-					"from": 4,
-					"to": 0
-				}, {
-					"from": 4,
-					"to": 3
-				}],
-				locations: [
-					[0, 1, 2, 3, 4]
-				],
-				generations: 4
-			}, ]
+			levels: [
+				//2 x Double, 1 x Single, non-intersecting
+				{
+					"segments": [{
+						"from": 0,
+						"to": 1
+					}, {
+						"from": 2,
+						"to": 3
+					}, {
+						"from": 3,
+						"to": 4
+					}, {
+						"from": 1,
+						"to": 2
+					}, {
+						"from": 4,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3, 4]
+					],
+					"generations": 3
+				},
+				//2 x Single on both ends of a 1 x Double, non-intersecting
+				{
+					"segments": [{
+						"from": 0,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 4
+					}, {
+						"from": 3,
+						"to": 2
+					}, {
+						"from": 1,
+						"to": 2
+					}, {
+						"from": 4,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3, 4]
+					],
+					"generations": 3
+				},
+				//2 x Double (Intersecting) and 1 x Single, non-intersecting.
+				{
+					"segments": [{
+						"from": 1,
+						"to": 2
+					}, {
+						"from": 4,
+						"to": 0
+					}, {
+						"from": 2,
+						"to": 3
+					}, {
+						"from": 3,
+						"to": 4
+					}, {
+						"from": 1,
+						"to": 0
+					}],
+					"locations": [
+						[0, 1, 2, 3, 4]
+					],
+					"generations": 3
+				},
+				//3 x Double, all with 1 overlap, no repeats.
+				{
+					"segments": [{
+						"from": 1,
+						"to": 0
+					}, {
+						"from": 2,
+						"to": 3
+					}, {
+						"from": 4,
+						"to": 0
+					}, {
+						"from": 2,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 4
+					}],
+					"locations": [
+						[0, 1, 2, 3, 4]
+					],
+					"generations": 3
+				},
+				//2 x Single, each on a 2 x Double. Later?
+				{
+					"segments": [{
+						"from": 0,
+						"to": 1
+					}, {
+						"from": 3,
+						"to": 2
+					}, {
+						"from": 1,
+						"to": 2
+					}, {
+						"from": 4,
+						"to": 0
+					}, {
+						"from": 4,
+						"to": 3
+					}],
+					"locations": [
+						[0, 1, 2, 3, 4]
+					],
+					"generations": 4
+				},
+			]
 		}
 		/*, {
 		ambient: {
@@ -705,22 +803,7 @@ var Plasmid = function(canvascontainer) {
 				new THREE.Color(0xDDDD00)
 			]
 		},
-		levels: [{
-			segments: [{
-				from: 1,
-				to: 0
-			}, {
-				from: 1,
-				to: 2
-			}, {
-				from: 2,
-				to: 0
-			}],
-			locations: [
-				[0, 1, 2]
-			],
-			generations: 1
-		}]
+		levels: []
 	}*/
 	]
 	//Contains the state of the current level and necessary data to show the level
@@ -730,7 +813,8 @@ var Plasmid = function(canvascontainer) {
 		level: null, //A reference to the current (game data) level
 		save: null, //A reference to the save data to the current level, containing location and history
 		handles: [], //An array holding all handle objects
-		locations: [],
+		locations: null,
+		history: null,
 		generation: 0
 	}
 	//Contains assets and settings relevant the level ring and UI
@@ -745,52 +829,59 @@ var Plasmid = function(canvascontainer) {
 			rearDistance: -500, //From what rear distance to begin transitioning forwards
 			ringopacityspeed: 0.02, //How fast to transition opacity of the ring
 			duration: 3.5, //How many seconds it should take
-			typetext: {
-				//The text that says "genome" or "plasmid" in "plasmid complete"
-				object: null,
-				position: new THREE.Vector3(0, 120, 50), //Where to place the text
-				scale: 0.7,
-				material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-			},
-			text: {
-				//The text that says "complete" in "plasmid complete"
-				object: null,
-				position: new THREE.Vector3(0, 0, 101), //Where to place the text
-				material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
-			}
+		},
+		completionType: {
+			//The text that says "genome" or "plasmid" in "plasmid complete"
+			object: null,
+			position: new THREE.Vector3(0, 100, 150), //Where to place the text
+			scale: 0.7,
+			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
+		},
+		completionText: {
+			opacity: 0,
+			//The text that says "complete" in "plasmid complete"
+			object: null,
+			position: new THREE.Vector3(0, 0, 251), //Where to place the text
+			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
 		},
 		counter: {
 			//The number representing the mutations remaining
+			opacity: 0,
 			object: null,
 			size: 120,
-			position: new THREE.Vector3(0, 0, 102), //Where to place the text
+			position: new THREE.Vector3(0, 0, 252), //Where to place the text
 			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
 		},
 		counterlabel: {
 			//The text that says "mutations left"
 			object: null,
-			position: new THREE.Vector3(0, -170, 51), //Where to place the text
+			position: new THREE.Vector3(0, -170, 151), //Where to place the text
 			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
 		},
 		undo: {
+			opacity: 0,
 			size: 200,
 			object: null,
-			position: new THREE.Vector3(-450, -300, 50), //Where to place the text
+			position: new THREE.Vector3(-0, -300, this.interaction.interactionDistance), //Where to place the text
 			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
 		},
 		redo: {
+			opacity: 0,
 			object: null,
-			position: new THREE.Vector3(450, -300, 50), //Where to place the text
+			position: new THREE.Vector3(0, -300, this.interaction.interactionDistance), //Where to place the text
 			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
 		},
 		reset: {
+			opacity: 0,
 			object: null,
-			position: new THREE.Vector3(-450, 300, 50), //Where to place the text
+			position: new THREE.Vector3(-0, 300, this.interaction.interactionDistance), //Where to place the text
 			material: new THREE.MeshBasicMaterial(this.utils_clone(this.textmaterialsettings))
 		},
 		object: new THREE.Object3D(), //The object that holds the entire level.
 		handle: {
+			visible: false,
 			size: 100,
+			inwards: 0.2, //How far (relative to the ring thickness) to move inwards
 			material: new THREE.MeshBasicMaterial({
 				transparent: true,
 				opacity: 0,
@@ -809,6 +900,7 @@ var Plasmid = function(canvascontainer) {
 			lerpspeed: 0.1, //How fast to switch segments
 			speed: 0.1, //How fast to switch segments
 			zoomspeed: 1.05, //How fast to zoom upon level completion
+			visible: false,
 			materialSettings: {
 				color: 0xFFFFFF,
 				//vertexColors: THREE.VertexColors,
@@ -978,6 +1070,12 @@ var Plasmid = function(canvascontainer) {
 			})
 		}
 	}
+	//Contains settings relevant to the level editor
+	this.editor = {
+		rings: 1,
+		segments: 4,
+		pack: this.levelpacks[1]
+	}
 	//The object that is saved and restored, containing current level and previous level histories.
 	this.savedata = {
 		levelpack: 0,
@@ -988,68 +1086,73 @@ var Plasmid = function(canvascontainer) {
 	this.setup();
 }
 Plasmid.prototype = {
-	//Shows the logo and menu items.
-	show_main: function() {
-		this.state = this.MAIN;
-		this.mainmenu.logo.object.visible = true;
-		this.lerp_add(this.mainmenu.logo.material, "opacity", 1, this.lerpspeed);
-		this.lerp_add(this.level.handle.material, "opacity", 0, this.lerpspeed);
-
-		//Fade all segments in
-		for (var i = 0; i < this.current.segments.length; i++) {
-			var segment = this.current.segments[i];
-			this.lerp_add(segment.object.material.uniforms.opacity, "value", 1, this.lerpspeed);
+	//Shows/hides items as appropriate.
+	update_ui: function() {
+		if (this.state == this.MAIN) {
+			//Show logo
+			this.mainmenu.logo.object.visible = true;
+			this.lerp_add(this.mainmenu.logo.material, "opacity", 1, this.lerpspeed);
+			this.lerp_add(this.level.handle.material, "opacity", 0, this.lerpspeed);
+			this.level.ring.visible = true;
 		}
-	},
-	//Shows the level UI
-	show_level: function() {
-		this.state = this.LEVEL;
-		//Show handles
-		this.lerp_add(this.level.handle.material, "opacity", 1, this.lerpspeed);
-		//Hide logo
-		this.lerp_add(this.mainmenu.logo.material, "opacity", 0, this.lerpspeed);
-		this.view.position.set(0, 0, this.interaction.defaultViewDistance);
-		this.view.lookAt.set(0, 0, 0);
-		//Show counters
-		this.lerp_add(this.level.counter.material, "opacity", 1, this.lerpspeed);
-		this.lerp_add(this.level.counterlabel.material, "opacity", 1, this.lerpspeed);
-		this.lerp_add(this.level.redo.material, "opacity", this.current.save.history.length > 1, this.lerpspeed);
-	},
-	//Shows the credits!
-	show_credits: function() {
-		this.state = this.DISABLED;
-		//TODO: Make credits!
-		console.warn("Credits are not implemented yet!");
-		this.level_update();
-		this.show_main();
+		if ((this.state & this.INLEVEL) != 0) {
+			//In a level
+			//Show handles
+			this.lerp_add(this.level.handle.material, "opacity", 1, this.lerpspeed);
+			//Hide logo
+			this.lerp_add(this.mainmenu.logo.material, "opacity", 0, this.lerpspeed);
+			this.view.position.set(0, 0, this.interaction.levelViewDistance);
+			this.view.lookAt.set(0, 0, 0);
+		}
+		if (this.state == this.LEVEL) {
+			//Show counters
+			this.level.counter.opacity = 1;
+		}
+		if ((this.state & this.HISTORY) != 0) {
+			this.level.undo.opacity = this.current.generation > 0 ? 1 : 0;
+			this.level.reset.opacity = this.current.generation > 0 ? 1 : 0;
+			this.level.redo.opacity = this.current.generation < this.current.history.length - 1 ? 1 : 0;
+		}
+		this.lerp_add(this.level.counter.material, "opacity", this.level.counter.opacity, this.lerpspeed);
+		this.lerp_add(this.level.counterlabel.material, "opacity", this.level.counter.opacity, this.lerpspeed);
+		this.lerp_add(this.level.completionText.material, "opacity", this.level.completionText.opacity, this.lerpspeed);
+		this.lerp_add(this.level.completionType.material, "opacity", this.level.completionText.opacity, this.lerpspeed);
+		this.lerp_add(this.level.undo.material, "opacity", this.level.undo.opacity, this.lerpspeed);
+		this.lerp_add(this.level.redo.material, "opacity", this.level.redo.opacity, this.lerpspeed);
+		this.lerp_add(this.level.reset.material, "opacity", this.level.reset.opacity, this.lerpspeed);
+		if (this.level.ring.visible) {
+			//Fade all segments in
+			for (var i = 0; i < this.current.segments.length; i++) {
+				var segment = this.current.segments[i];
+				this.lerp_add(segment.object.material.uniforms.opacity, "value", 1, this.lerpspeed);
+			}
+		}
+		if (this.state == this.CREDITS) {
+			console.warn("Credits are not implemented yet!");
+			this.level_update();
+		}
 	},
 	//Resets the level
 	level_reset: function() {
-		if (this.state == this.LEVEL && this.current.generation > 0) {
+		if ((this.state & this.HISTORY) != 0 && this.current.generation > 0) {
 			this.current.generation = 0;
-			this.lerp_add(this.level.undo.material, "opacity", 0, this.lerpspeed);
-			this.lerp_add(this.level.redo.material, "opacity", 1, this.lerpspeed);
-			this.lerp_add(this.level.reset.material, "opacity", 0, this.lerpspeed);
+			this.update_ui();
 			this.level_update();
 		}
 	},
 	//Undoes the previous action
 	level_undo: function() {
-		if (this.state == this.LEVEL && this.current.generation > 0) {
+		if ((this.state & this.HISTORY) != 0 && this.current.generation > 0) {
 			this.current.generation--;
-			this.lerp_add(this.level.undo.material, "opacity", this.current.generation > 0 ? 1 : 0, this.lerpspeed);
-			this.lerp_add(this.level.redo.material, "opacity", 1, this.lerpspeed);
-			this.lerp_add(this.level.reset.material, "opacity", this.current.generation > 0 ? 1 : 0, this.lerpspeed);
+			this.update_ui();
 			this.level_update();
 		}
 	},
 	//Redoes. Period.
 	level_redo: function() {
-		if (this.state == this.LEVEL && this.current.generation < this.current.save.history.length - 1) {
+		if ((this.state & this.HISTORY) != 0 && this.current.generation < this.current.history.length - 1) {
 			this.current.generation++;
-			this.lerp_add(this.level.undo.material, "opacity", 1, this.lerpspeed);
-			this.lerp_add(this.level.redo.material, "opacity", this.current.generation < this.current.save.history.length - 1 ? 1 : 0, this.lerpspeed);
-			this.lerp_add(this.level.reset.material, "opacity", 1, this.lerpspeed);
+			this.update_ui();
 			this.level_update();
 		}
 	},
@@ -1060,13 +1163,13 @@ Plasmid.prototype = {
 			this.level_load();
 		} else {
 			if ((this.savedata.levelpack + 1) in this.levelpacks) {
-				//TODO: Make levelpack transition!
 				this.savedata.levelpack++;
 				this.savedata.level = 0;
 				this.level_load();
 			} else {
 				console.log("GAME COMPLETE!");
-				this.show_credits();
+				this.state = this.CREDITS;
+				this.update_ui();
 				//Break the cycle of going to the next level.
 				this.level.completion.complete = 1;
 				this.level.completion._complete = 1;
@@ -1087,46 +1190,54 @@ Plasmid.prototype = {
 	},
 	//Makes a move to the current level
 	level_move: function(handle1, handle2) {
-		//Leave this copy in history.
-		this.current.locations = this.utils_clone(this.current.locations);
-		if (!handle2) {
-			//Split
-		} else if (handle1.ring == handle2.ring) {
-			//Reverse
-			var ring = this.current.locations[handle1.ring];
-			//Make sure we take the shortcut, not the long-cut
-			if (handle2.segment < handle1.segment && handle2.segment + 1 + ring.length - handle1.segment > handle1.segment - handle2.segment || handle2.segment > handle1.segment && handle1.segment + ring.length - handle2.segment < handle2.segment - handle1.segment) {
-				var temp = handle2;
-				handle2 = handle1;
-				handle1 = temp;
-			}
-			if (handle2.segment < handle1.segment) {
-				for (var i = 0; i < ring.length; i++) {
-					if (i < handle2.segment || i >= handle1.segment) {
+		if ((this.state & this.INLEVEL) != 0) {
+			//Leave this copy in history.
+			this.current.locations = this.utils_clone(this.current.locations);
+			if (handle1.ring == handle2.ring) {
+				//Reverse
+				var ring = this.current.locations[handle1.ring];
+				//Make sure we take the shortcut, not the long-cut
+				if (handle2.segment < handle1.segment && handle2.segment + 1 + ring.length - handle1.segment > handle1.segment - handle2.segment || handle2.segment > handle1.segment && handle1.segment + ring.length - handle2.segment < handle2.segment - handle1.segment) {
+					var temp = handle2;
+					handle2 = handle1;
+					handle1 = temp;
+				}
+				if (handle2.segment < handle1.segment) {
+					for (var i = 0; i < ring.length; i++) {
+						if (i < handle2.segment || i >= handle1.segment) {
+							ring[i].reversed = !ring[i].reversed;
+						}
+					}
+				} else {
+					for (var i = handle1.segment; i < handle2.segment; i++) {
 						ring[i].reversed = !ring[i].reversed;
 					}
 				}
-			} else {
-				for (var i = handle1.segment; i < handle2.segment; i++) {
-					ring[i].reversed = !ring[i].reversed;
-				}
+				this.utils_reverse(ring, handle1.segment, handle2.segment - 1);
 			}
-			this.utils_reverse(ring, handle1.segment, handle2.segment - 1);
-		} else {
-			//Join
+			//Keep history
+			if ((this.state & this.HISTORY) != 0 && this.current.generation > 0 && this.utils_compare(this.current.locations, this.current.history[this.current.generation - 1])) {
+				this.level_undo();
+			} else {
+				this.current.generation++;
+				if ((this.state & this.HISTORY) != 0) {
+					this.current.history.splice(this.current.generation);
+					this.level.undo.opacity = 1;
+					this.level.redo.opacity = 0;
+					this.level.reset.opacity = 1;
+					this.update_ui();
+				}
+				this.current.history[this.current.generation] = this.current.locations;
+				this.level_update();
+			}
 		}
-		//Keep history
-		this.current.generation++;
-		this.current.save.history.splice(this.current.generation);
-		this.current.save.history[this.current.generation] = this.current.locations;
-		this.lerp_add(this.level.undo.material, "opacity", 1, this.lerpspeed);
-		this.lerp_add(this.level.redo.material, "opacity", 0, this.lerpspeed);
-		this.lerp_add(this.level.reset.material, "opacity", 1, this.lerpspeed);
-		this.level_update();
 	},
 	//Checks to see if the level is completed
 	level_iscomplete: function() {
-		if (this.current.generation > this.current.level.generations) {
+		if ((this.state & this.INLEVEL) == 0) {
+			return false;
+		}
+		if ((this.state != this.LEVELEDITOR) && this.current.generation > this.current.level.generations) {
 			return false;
 		}
 		for (var r = 0; r < this.current.locations.length; r++) {
@@ -1161,23 +1272,15 @@ Plasmid.prototype = {
 				var savePack = this.savedata.levelpacks[this.savedata.levelpack];
 				if (!(this.savedata.level in savePack)) {
 					//Wrap each pristine segment in modifiable segment objects
-					var level = this.utils_clone(this.current.level.locations);
-					for (var r = 0; r < level.length; r++) {
-						var ring = level[r];
-						for (var s = 0; s < ring.length; s++) {
-							ring[s] = {
-								segment: ring[s],
-								reversed: false
-							};
-						}
-					}
+					var locations = this.utils_wrap(this.utils_clone(this.current.level.locations));
 					//Create save data
 					savePack[this.savedata.level] = {
-						history: [level]
+						history: [locations]
 					}
 				}
 				var saveLevel = savePack[this.savedata.level];
 				this.current.save = saveLevel;
+				this.current.history = this.current.save.history;
 				this.current.generation = 0;
 				this.level_build();
 				return;
@@ -1273,8 +1376,8 @@ Plasmid.prototype = {
 		if (needsUpdate) {
 			//Set the positions in a way for the vertex shader to use
 			for (var i = 0; i < this.level.drag.subdivisions; i++) {
-				this.level.drag.geometry.vertices[2 * i].set(i / (this.level.drag.subdivisions - 1), 1, Math.random());
-				this.level.drag.geometry.vertices[2 * i + 1].set(i / (this.level.drag.subdivisions - 1), 0, Math.random());
+				this.level.drag.geometry.vertices[2 * i].set(i / (this.level.drag.subdivisions - 1), 1, 0);
+				this.level.drag.geometry.vertices[2 * i + 1].set(i / (this.level.drag.subdivisions - 1), 0, 0);
 			}
 
 			//Resize face array
@@ -1296,10 +1399,77 @@ Plasmid.prototype = {
 		}
 		this.level_update();
 	},
+	//Loads the editor with a provided level
+	editor_load: function(level) {
+		this.state = this.LEVELEDITOR;
+		this.current.pack = this.editor.pack;
+		this.current.level = {
+			segments: level.segments,
+			generations: level.generations
+		};
+		this.current.save = null;
+		this.current.history = [];
+		this.current.generation = 0;
+		//this.current.segments;//DO NOT TOUCH!
+		this.current.locations = this.utils_wrap(level.locations);
+		this.current.history.push(this.current.locations);
+		this.level_build();
+		this.update_ui();
+	},
+	//Loads the level editor with a new level
+	editor_new: function() {
+		var level = {
+			segments: [],
+			locations: [],
+			generations: 0
+		}
+		var counter = 0;
+		for (var r = 0; r < this.editor.rings; r++) {
+			var ring = level.locations[r] = [];
+			for (var s = 0; s < this.editor.segments; s++) {
+				level.segments.push({
+					from: s,
+					to: (s + 1) % this.editor.segments
+				});
+				ring[s] = counter;
+				counter++;
+			}
+		}
+		this.editor_load(level);
+	},
+	//Exports the current level
+	editor_export: function() {
+		var exported = {
+			segments: [],
+			locations: [],
+			generations: this.current.generation
+		};
+		var counter = 0;
+		for (var r = 0; r < this.current.locations.length; r++) {
+			var ring = this.current.locations[r];
+			exported.locations[r] = [];
+			for (var s = 0; s < ring.length; s++) {
+				if (ring[s].reversed) {
+					exported.segments.push({
+						from: this.current.level.segments[ring[s].segment].to,
+						to: this.current.level.segments[ring[s].segment].from
+					});
+				} else {
+					exported.segments.push({
+						from: this.current.level.segments[ring[s].segment].from,
+						to: this.current.level.segments[ring[s].segment].to
+					});
+				}
+				exported.locations[r][s] = counter;
+				counter++;
+			}
+		}
+		prompt("Copy this:", JSON.stringify(exported));
+	},
 	//Updates the ring and UI when a move has been made
 	level_update: function(complete) {
 		//Load up the current level
-		this.current.locations = this.current.save.history[this.current.generation];
+		this.current.locations = this.current.history[this.current.generation];
 		//Place all the segments and handles where needed
 		var currentHandle = 0;
 		for (var r = 0; r < this.current.locations.length; r++) {
@@ -1333,7 +1503,7 @@ Plasmid.prototype = {
 					handle.theta = startAngle;
 					handle.normalizedRadius = (r + 1) / this.current.locations.length;
 					handle.object.position.set(Math.cos(startAngle), Math.sin(startAngle), 0)
-						.multiplyScalar(radius + this.level.ring.thickness * 0.4);
+						.multiplyScalar(radius + this.level.ring.thickness * this.level.handle.inwards);
 					handle.radius = handle.object.position.length();
 					handle.object.position.z = this.interaction.interactionDistance;
 					handle.object.rotation.z = startAngle;
@@ -1375,17 +1545,34 @@ Plasmid.prototype = {
 		}
 		//Sort out the generation numbers
 		var number = this.utils_clamp(this.current.level.generations - this.current.generation, 0, 9);
+		if (this.state == this.LEVELEDITOR) {
+			number = this.current.generation;
+		}
 		this.level.counter.material.map.offset.x = (number % 5) / 5;
 		this.level.counter.material.map.offset.y = 2 / 3 - Math.floor(number / 5) / 3;
 		//Check for completion
-		if (this.level_iscomplete()) {
+		if (this.state == this.LEVELEDITOR) {
 			this.lerp_add(this.shaders.desaturate.uniforms.amount, "value", 0, this.lerpspeed);
-			this.level_complete();
-		} else {
-			if (this.current.generation >= this.current.level.generations) {
-				this.lerp_add(this.shaders.desaturate.uniforms.amount, "value", 0.5, this.lerpspeed);
+			if (this.level_iscomplete()) {
+				//Plasmid complete
+				this.level.completionType.material.map.offset.y = 2 / 3;
+				this.level.completionText.opacity = 1;
+				this.level.counter.opacity = 0;
 			} else {
+				this.level.completionText.opacity = 0;
+				this.level.counter.opacity = 1;
+			}
+			this.update_ui();
+		} else if ((this.state & this.INLEVEL) != 0) {
+			if (this.level_iscomplete()) {
 				this.lerp_add(this.shaders.desaturate.uniforms.amount, "value", 0, this.lerpspeed);
+				this.level_complete();
+			} else {
+				if (this.current.generation >= this.current.level.generations) {
+					this.lerp_add(this.shaders.desaturate.uniforms.amount, "value", 0.5, this.lerpspeed);
+				} else {
+					this.lerp_add(this.shaders.desaturate.uniforms.amount, "value", 0, this.lerpspeed);
+				}
 			}
 		}
 	},
@@ -1405,7 +1592,10 @@ Plasmid.prototype = {
 	mouse_move: function(x, y) {
 		this.interaction.cursor.position.set(x, y, 0);
 		this.interaction.cursor.handleMove = true;
-		this.view._tilt.set(x, y, 0).divide(this.size).multiplyScalar(2).addScalar(-1);
+		this.view._tilt.set(x, y, 0).divide(this.size);
+		this.view._tilt.x = this.utils_clamp(this.view._tilt.x, 0, 1);
+		this.view._tilt.y = this.utils_clamp(this.view._tilt.y, 0, 1);
+		this.view._tilt.multiplyScalar(2).addScalar(-1);
 		this.view._tilt.y = -this.view._tilt.y;
 		this.view.returning = true;
 	},
@@ -1460,7 +1650,11 @@ Plasmid.prototype = {
 		if (this.usePostProcess) {
 			var pass;
 			this.composer = new THREE.EffectComposer(this.renderer);
-			this.composer.addPass(new THREE.RenderPass(this.scene, this.camera));
+			if (this.useAnaglpyh) {
+				this.composer.addPass(new THREE.AnaglyphRenderPass(this.scene, this.camera));
+			} else {
+				this.composer.addPass(new THREE.RenderPass(this.scene, this.camera));
+			}
 			pass = new THREE.ShaderPass(this.shaders.displace);
 			this.composer.addPass(pass);
 			pass.material.uniforms.resolution.value = this.size;
@@ -1511,7 +1705,7 @@ Plasmid.prototype = {
 		this.scene.add(this.ambient.rays.object);
 
 		//Background
-		this.ambient.background.geometry = new THREE.PlaneGeometry(12000, 12000);
+		this.ambient.background.geometry = new THREE.PlaneGeometry(12000, 4500);
 		this.ambient.background.geometry.faces[0].vertexColors.push(this.ambient.background.colorTop);
 		this.ambient.background.geometry.faces[0].vertexColors.push(this.ambient.background.colorBottom);
 		this.ambient.background.geometry.faces[0].vertexColors.push(this.ambient.background.colorTop);
@@ -1529,7 +1723,7 @@ Plasmid.prototype = {
 	//Sets up the rest after resources are loaded
 	setup_postload: function() {
 		//Handle the particles
-		if (this.useparticles && this.ambient.particles.object == null) {
+		if (this.useParticles && this.ambient.particles.object == null) {
 			this.ambient.particles.geometry.attributes = {
 				position: {
 					itemSize: 3,
@@ -1545,40 +1739,40 @@ Plasmid.prototype = {
 			this.ambient.particles.material.uniforms.boxSize.value.copy(this.ambient.particles.boxSize);
 			var position = this.ambient.particles.geometry.attributes.position.array;
 			for (var i = 0; i < this.ambient.particles.numParticles; i++) {
-				position[3 * i] = Math.random() * this.ambient.particles.boxSize.x;
-				position[3 * i + 1] = Math.random() * this.ambient.particles.boxSize.y;
-				position[3 * i + 2] = Math.random() * this.ambient.particles.boxSize.z;
+				position[3 * i] = (Math.random() - 0.5) * this.ambient.particles.boxSize.x;
+				position[3 * i + 1] = (Math.random() - 0.5) * this.ambient.particles.boxSize.y;
+				position[3 * i + 2] = this.ambient.particles.boxSize.z * (i / this.ambient.particles.numParticles - 0.5); //Put in sorted order
 				this.ambient.particles.geometry.attributes.velocity.array[i] = Math.random() * this.ambient.particles.toMaxVelocity + this.ambient.particles.minVelocity;
 			}
-			this.ambient.particles.geometry.computeBoundingSphere();
 			this.ambient.particles.material.uniforms.map.value = this.images.particle;
 			this.ambient.particles.object = new THREE.ParticleSystem(
 				this.ambient.particles.geometry,
 				this.ambient.particles.material
 			);
+			this.ambient.particles.object.renderDepth = -1e20;
 			this.scene.add(this.ambient.particles.object);
 		}
 
 		//Get the completion text ready
 		this.images.complete.repeat.y = 1 / 3;
-		this.level.completion.text.material.map = this.images.complete;
-		this.level.completion.text.material.map.offset.y = 1 / 3;
-		this.level.completion.text.object = new THREE.Mesh(
+		this.level.completionText.material.map = this.images.complete;
+		this.level.completionText.material.map.offset.y = 1 / 3;
+		this.level.completionText.object = new THREE.Mesh(
 			new THREE.PlaneGeometry(this.mainmenu.logo.size, this.mainmenu.logo.size / 3),
-			this.level.completion.text.material
+			this.level.completionText.material
 		);
-		this.level.completion.text.object.position.copy(this.level.completion.text.position);
-		this.level.object.add(this.level.completion.text.object);
+		this.level.completionText.object.position.copy(this.level.completionText.position);
+		this.level.object.add(this.level.completionText.object);
 
-		this.level.completion.typetext.material.map = this.images.complete.clone();
-		this.level.completion.typetext.material.map.needsUpdate = true;
-		this.level.completion.typetext.object = new THREE.Mesh(
+		this.level.completionType.material.map = this.images.complete.clone();
+		this.level.completionType.material.map.needsUpdate = true;
+		this.level.completionType.object = new THREE.Mesh(
 			new THREE.PlaneGeometry(this.mainmenu.logo.size, this.mainmenu.logo.size / 3),
-			this.level.completion.typetext.material
+			this.level.completionType.material
 		);
-		this.level.completion.typetext.object.position.copy(this.level.completion.typetext.position);
-		this.level.completion.typetext.object.scale.set(this.level.completion.typetext.scale, this.level.completion.typetext.scale, 1);
-		this.level.object.add(this.level.completion.typetext.object);
+		this.level.completionType.object.position.copy(this.level.completionType.position);
+		this.level.completionType.object.scale.set(this.level.completionType.scale, this.level.completionType.scale, 1);
+		this.level.object.add(this.level.completionType.object);
 
 		//Get the remaining moves text ready
 		this.images.counter.repeat.y = 1 / 3;
@@ -1609,7 +1803,7 @@ Plasmid.prototype = {
 			new THREE.PlaneGeometry(this.level.undo.size, this.level.undo.size / 3),
 			this.level.undo.material
 		);
-		this.level.undo.object.position.copy(this.level.undo.position);
+		this.level.undo.object.position = this.level.undo.position;
 		this.level.object.add(this.level.undo.object);
 
 		this.level.redo.material.map = this.images.history.clone();
@@ -1619,7 +1813,7 @@ Plasmid.prototype = {
 			new THREE.PlaneGeometry(this.level.undo.size, this.level.undo.size / 3),
 			this.level.redo.material
 		);
-		this.level.redo.object.position.copy(this.level.redo.position);
+		this.level.redo.object.position = this.level.redo.position;
 		this.level.object.add(this.level.redo.object);
 
 		this.level.reset.material.map = this.images.history.clone();
@@ -1629,7 +1823,7 @@ Plasmid.prototype = {
 			new THREE.PlaneGeometry(this.level.undo.size, this.level.undo.size / 3),
 			this.level.reset.material
 		);
-		this.level.reset.object.position.copy(this.level.reset.position);
+		this.level.reset.object.position = this.level.reset.position;
 		this.level.object.add(this.level.reset.object);
 	},
 	//Adds a value to be lerped over the loop timer
@@ -1720,9 +1914,11 @@ Plasmid.prototype = {
 		if (this.interaction.cursor.handleMove) {
 			//Project the mouse position (approximately)
 			this.interaction.cursor.position.divide(this.size);
+			this.interaction.cursor.position.x = this.utils_clamp(this.interaction.cursor.position.x, 0, 1);
+			this.interaction.cursor.position.y = this.utils_clamp(this.interaction.cursor.position.y, 0, 1);
 			this.interaction.cursor.projected.set(this.size.x * (this.interaction.cursor.position.x - 0.5) / this.size.y, 0.5 - this.interaction.cursor.position.y, 0)
 				.multiplyScalar(2 * this.interaction.maxHeight);
-			if (this.state == this.LEVEL) {
+			if ((this.state & this.INLEVEL) != 0) {
 				//Find the nearest handle if selecting
 				if (this.interaction.selection.selecting) {
 					this.level_nearest();
@@ -1738,26 +1934,28 @@ Plasmid.prototype = {
 		if (this.interaction.cursor.handleDown) {
 			if (this.state == this.MAIN) {
 				this.level_load();
-				this.show_level();
-			} else if (this.state == this.LEVELCOMPLETE) {
-				this.show_nextlevel();
-			} else if (this.state == this.LEVEL) {
-				//Check for button presses
-				var pressed = false,
-					test = this.level.undo.position;
-				if (this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
-					this.level_undo();
-					pressed = true;
-				}
-				test = this.level.redo.position;
-				if (!pressed && this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
-					this.level_redo();
-					pressed = true;
-				}
-				test = this.level.reset.position;
-				if (!pressed && this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
-					this.level_reset();
-					pressed = true;
+				this.state = this.LEVEL;
+				this.update_ui();
+			} else if ((this.state & this.INLEVEL) != 0) {
+				//Check for undo/redo/reset
+
+				var pressed = false;
+				if ((this.state & this.HISTORY) != 0) {
+					var test = this.level.undo.position;
+					if (this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
+						this.level_undo();
+						pressed = true;
+					}
+					test = this.level.redo.position;
+					if (!pressed && this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
+						this.level_redo();
+						pressed = true;
+					}
+					test = this.level.reset.position;
+					if (!pressed && this.utils_length(this.interaction.cursor.projected.x - test.x, this.interaction.cursor.projected.y - test.y) < this.interaction.interactableDistance) {
+						this.level_reset();
+						pressed = true;
+					}
 				}
 				if (!pressed) {
 					//Find the nearest handle
@@ -1781,8 +1979,6 @@ Plasmid.prototype = {
 					this.level.drag.object.material.uniforms.startAngle.value += this.level.drag._deltaAngle;
 					this.level.drag.object.material.uniforms.startRadius.value += this.level.drag._deltaRadius;
 					this.level.drag.object.material.uniforms.deltaAngle.value *= -1;
-				} else if (false) { //TODO: Splicing of plasmids
-
 				}
 			}
 			//Not selecting anymore
@@ -1832,7 +2028,6 @@ Plasmid.prototype = {
 
 		//Move the camera based on the mouse
 		this.view._position.lerp(this.view.position, this.lerpspeed);
-		//TODO:Remove at some point and replace with lerp_add()
 		this.camera.position.copy(this.view._position);
 		if (this.view.returning) {
 			this.view.snap = Math.min(1, this.view.snap + this.view.returnspeed);
@@ -1880,39 +2075,39 @@ Plasmid.prototype = {
 						this.level.completion._complete = 4;
 						if ((this.savedata.level + 1) in this.current.pack.levels) {
 							//Plasmid complete
-							this.level.completion.typetext.material.map.offset.y = 2 / 3;
+							this.level.completionType.material.map.offset.y = 2 / 3;
 						} else {
 							//Genome complete
-							this.level.completion.typetext.material.map.offset.y = 0;
+							this.level.completionType.material.map.offset.y = 0;
 						}
-						this.lerp_add(this.level.completion.text.material, "opacity", 1, this.level.completion.textopacityspeed);
-						this.lerp_add(this.level.completion.typetext.material, "opacity", 1, this.level.completion.textopacityspeed);
+						this.lerp_add(this.level.completionText.material, "opacity", 1, this.lerpspeed);
+						this.lerp_add(this.level.completionType.material, "opacity", 1, this.lerpspeed);
 					}
 					var mapped = this.utils_map(this.level.completion.complete, 0.3, 0.7, 0, 0.5);
-					this.level.object.position.z = mapped * mapped * this.interaction.defaultViewDistance;
-					p.ambient.particles.material.uniforms.offset.value.z += 20 * mapped;
+					this.level.object.position.z = mapped * mapped * this.interaction.levelViewDistance;
+					p.ambient.particles.material.uniforms.offset.value.z = 0.75 * mapped * mapped;
 				}
 
 				//Fly it out and in
 				if (this.level.completion.complete > 0.7 && this.level.completion.complete < 0.8) {
 					//Fly out
 					var mapped = this.utils_map(this.level.completion.complete, 0.7, 0.8, 0.5, 1);
-					this.level.completion.text.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
-					this.level.completion.typetext.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
-					this.level.object.position.z = mapped * mapped * this.interaction.defaultViewDistance;
-					p.ambient.particles.material.uniforms.offset.value.z += 40 * mapped;
+					this.level.completionText.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
+					this.level.completionType.material.opacity = this.utils_clamp(3.0 - 3.5 * mapped, 0, 1);
+					this.level.object.position.z = mapped * mapped * this.interaction.levelViewDistance;
+					p.ambient.particles.material.uniforms.offset.value.z = 0.75 * mapped * mapped;
 				}
 				//Fly in
 				if (this.level.completion.complete > 0.8) {
 					var mapped = this.utils_map(this.level.completion.complete, 0.8, 1, 1, 0);
 					this.level.object.position.z = mapped * mapped * this.level.completion.rearDistance;
-					p.ambient.particles.material.uniforms.offset.value.z += 20 * mapped;
+					p.ambient.particles.material.uniforms.offset.value.z = 0.25 * -mapped * mapped;
 					//Update new level
 					if (this.level.completion._complete < 5) {
 						this.level.completion._complete = 5;
 						//Remove level complete text
-						this.lerp_add(this.level.completion.text.material, "opacity", 0, 1);
-						this.lerp_add(this.level.completion.typetext.material, "opacity", 0, 1);
+						this.lerp_add(this.level.completionText.material, "opacity", 0, 1);
+						this.lerp_add(this.level.completionType.material, "opacity", 0, 1);
 						//Make the new level.
 						this.level_next();
 						//Fade all segments in.
@@ -1928,22 +2123,22 @@ Plasmid.prototype = {
 				this.level.completion.complete = 0;
 				this.level.completion._complete = 0;
 				this.shaders.displace.uniforms.phase.value = 0;
-				this.level.completion.text.object.position.copy(this.level.completion.text.position);
-				this.level.completion.typetext.object.position.copy(this.level.completion.typetext.position);
+				this.level.completionText.object.position.copy(this.level.completionText.position);
+				this.level.completionType.object.position.copy(this.level.completionType.position);
 				this.level.object.position.z = 0;
 				if (this.state == this.DISABLED) {
-					this.show_level();
+					this.state = this.LEVEL;
+					this.update_ui();
 				}
 			}
 		}
 
-		//Rotate the ring
 		if (this.state != this.LOADING) {
 			//Move the rays
 			this.images.rays.offset.x -= this.ambient.rays.raySpeed * this.deltaTime;
 
 			//Update the particles
-			if (this.ambient.particles.object && this.useparticles) {
+			if (this.ambient.particles.object && this.useParticles) {
 				this.ambient.particles.material.uniforms.time.value += this.deltaTime;
 				//this.ambient.particles.material.uniforms.scale.value = this.width;
 			}
@@ -1960,11 +2155,22 @@ Plasmid.prototype = {
 		this.size.set(window.innerWidth, window.innerHeight, 0);
 		this.renderer.setSize(this.size.x, this.size.y);
 		this.camera.projectionMatrix.makePerspective(this.view.fov, this.size.x / this.size.y, this.view.near, this.view.far);
-		this.interaction.maxHeight = (this.interaction.defaultViewDistance + this.interaction.adjustedProjectionDistance) * Math.atan(Math.PI * this.view.fov / 360);
+		//Help the anaglyph shader:
+		this.camera.fov = this.view.fov;
+		this.camera.aspect = this.size.x / this.size.y;
+		this.camera.near = this.view.near;
+		this.camera.far = this.view.far;
+		//Compute (approximate) world-space z that corresponds to the y value of 0 in screen space
+		this.interaction.maxHeight = (this.interaction.levelViewDistance + this.interaction.adjustedProjectionDistance) * Math.atan(Math.PI * this.view.fov / 360);
 		if (this.usePostProcess) {
 			//this.composer.setSize(this.size.x, this.size.y);
 			this.composer.reset();
 		}
+		//Adjust the undo/reset/redo button positions
+		var distance = this.interaction.maxHeight * this.size.x / this.size.y - 150;
+		this.level.undo.position.x = -distance;
+		this.level.redo.position.x = distance;
+		this.level.reset.position.x = -distance;
 	},
 	//Loads all the images
 	loader_load: function() {
@@ -1988,8 +2194,9 @@ Plasmid.prototype = {
 	//Shows the main menu, after loading has completed.
 	loader_complete: function() {
 		this.setup_postload();
+		this.state = this.MAIN;
 		this.level_load();
-		this.show_main();
+		this.update_ui();
 		//Snap! Fast!
 		this.view.position.copy(this.view._position);
 		this.view.lookAt.copy(this.view._lookAt);
@@ -2070,6 +2277,38 @@ Plasmid.prototype = {
 	//Maps n from min1 to max1 to a new range min2 to max2
 	utils_map: function(n, min1, max1, min2, max2) {
 		return (max2 - min2) * (n - min1) / (max1 - min1) + min2;
+	},
+	//Compares a and b for the same contents
+	utils_compare: function(a, b) {
+		if (a instanceof Array || a instanceof Object) {
+			for (var i in a) {
+				if (i in b) {
+					//Recursive compare
+					if (!this.utils_compare(a[i], b[i])) {
+						return false;
+					}
+				} else {
+					//A field is in one but not the other
+					return false;
+				}
+			}
+		} else {
+			return a == b;
+		}
+		return true;
+	},
+	//Wraps an array of locations with {segment:#,reversed:false}
+	utils_wrap: function(locations) {
+		for (var r = 0; r < locations.length; r++) {
+			var ring = locations[r];
+			for (var s = 0; s < ring.length; s++) {
+				ring[s] = {
+					segment: ring[s],
+					reversed: false
+				};
+			}
+		}
+		return locations;
 	}
 };
 var p = new Plasmid(document.getElementById("canvascontainer"));

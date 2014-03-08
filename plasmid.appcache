@@ -1,5 +1,5 @@
 CACHE MANIFEST
-# 2-25-2014 v13
+# 2-24-2014 v16
 # Remember to change this comment when resources change,
 # to inform the browser that things have changed
 CACHE:
@@ -11,8 +11,9 @@ images/Particle.png
 images/Complete.png
 images/Rays.png
 css/index.css
-js/index.js
 images/Counter.png
 images/History.png
 
-#NETWORK:
+NETWORK:
+js/AnaglyphRenderPass.js
+js/index.js
