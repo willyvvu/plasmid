@@ -18,5 +18,5 @@ images/MenuControls.png
 images/MainMenu.png
 js/AnaglyphRenderPass.js
 
-NETWORK:
+#NETWORK:
 js/index.js

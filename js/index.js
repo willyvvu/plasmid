@@ -374,7 +374,11 @@ var Plasmid = function(canvascontainer) {
 			opacity: function() {
 				return this.state == this.MAIN ? 1 : 0;
 			},
-			handler: function() {}
+			handler: function() {
+				if (this.state == this.MAIN) {
+					window.location="about:blank";
+				}
+			}
 		}
 	}
 	//Contains objects that make up the main menu, along with the menu state
@@ -1433,9 +1437,10 @@ Plasmid.prototype = {
 				this.level_load();
 				return true;
 			} else {
-				if (this.completion._complete > 0) {
+				if (this.level.completion._complete > 0) {
 					console.log("GAME COMPLETE!");
 					this.state = this.CREDITS;
+					//this.update_ui();
 				}
 			}
 		}
@@ -2264,13 +2269,13 @@ Plasmid.prototype = {
 		if (this.credits._scroll > 0) {
 			if (this.credits.scroll < 1) {
 				this.credits.scroll = Math.min(this.credits.scroll + this.deltaTime / this.credits.duration, 1);
-				this.credits.text.material.opacity = 1;
+				this.text.credits.material.opacity = 1;
 				this.level.object.position.y = -600 + 1200 * this.credits.scroll;
 			} else {
 				//Finish up
 				this.credits.scroll = 0;
 				this.credits._scroll = 0;
-				this.credits.text.material.opacity = 0;
+				this.text.credits.material.opacity = 0;
 				this.level.object.position.y = 0;
 				this.level.object.position.z = 0;
 				if (this.state == this.CREDITS) {
