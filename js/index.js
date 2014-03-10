@@ -16,7 +16,7 @@ var Plasmid = function(canvascontainer) {
 	//Whether or not to use the post-processing chain
 	this.usePostProcess = true;
 	this.useParticles = true;
-	this.useAnaglpyh = window.location.hash.contains("a");
+	this.useAnaglpyh = window.location.hash=="#a";
 	//Modifiers
 	this.INLEVEL = 128;
 	this.HISTORY = 256;
